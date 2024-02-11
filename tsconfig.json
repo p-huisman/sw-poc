@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "experimentalDecorators": true,
+    "target": "ES6",
+    "useDefineForClassFields": false,
+    "module": "ES2020",
+    "lib": ["ES2020", "DOM", "dom.iterable", "WebWorker"],
+    "moduleResolution": "Node",
+    "strict": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noImplicitReturns": true,
+    "skipLibCheck": true,
+    "strictNullChecks": false
+  },
+  "include": ["src"]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "sw-data",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "develop:js": "esbuild src/sw-data.ts --bundle --watch --outfile=dist/sw-data.js",
+    "develop:sw": "esbuild src/sw-data-service-worker.ts --bundle --watch --outfile=dist/sw-data-service-worker.js",
+    "develop": "concurrently \"npm:develop:js\" \"npm:develop:sw\" \"npm:serve\"",
+    "build:js": "esbuild src/sw-data.ts --bundle --minify --outfile=dist/sw-data.js",
+    "build:sw": "esbuild src/sw-data-service-worker.ts --bundle --minify --outfile=dist/sw-data-service-worker.js",
+    "serve": "concurrently \"node scripts/remoteserver.js\" \"node scripts/server.js\"",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "body-parser": "^1.20.2",
+    "concurrently": "^8.2.2",
+    "esbuild": "^0.20.0",
+    "express": "^4.18.2",
+    "serve-index": "^1.9.1"
+  },
+  "dependencies": {
+    "jsonwebtoken": "^9.0.2"
+  }
+}
