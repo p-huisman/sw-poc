@@ -1,27 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Document</title>
-</head>
-<body>
-    <sw-data token="MyBearerToken" token-endpoint="/token" base-url="http://localhost:9001"></sw-data>
-    <script src="../dist/sw-data.js"></script>
+  </head>
 
-    <button id="fetch">Fetch</button>
+  <body>
+    <sw-data
+      token="MyBearerToken"
+      token-endpoint="/token"
+      base-url="http://localhost:9001"
+    ></sw-data>
 
-    <script>
-        document.getElementById('fetch').addEventListener('click', () => {
-            
-            fetch('http://localhost:9001/api/data-sample-request').then((response) => {
-                response.json().then((data) => {
-                    console.log(data);
-                })
-            });
-        });
-        
-    </script>
-</body>
+    <button id="FetchButton">Fetch</button>
+
+    <script defer src="../dist/sw-data.js"></script>
+    <script defer src="./demo.js"></script>
+  </body>
 </html>
