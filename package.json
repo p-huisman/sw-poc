@@ -1,15 +1,15 @@
 {
-  "name": "sw-data",
+  "name": "p-ajax",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
   "scripts": {
-    "develop:js": "esbuild src/sw-data.ts --bundle --watch --outfile=dist/sw-data.js",
-    "develop:sw": "esbuild src/sw-data-service-worker.ts --bundle --watch --outfile=dist/sw-data-service-worker.js",
+    "develop:js": "esbuild src/p-ajax.ts --bundle --watch --outfile=dist/p-ajax.js",
+    "develop:sw": "esbuild src/service-worker/service-worker.ts --bundle --watch --outfile=dist/p-ajax-sw.js",
     "develop": "concurrently \"npm:develop:js\" \"npm:develop:sw\" \"npm:serve\"",
-    "build:js": "esbuild src/sw-data.ts --bundle --minify --outfile=dist/sw-data.js",
-    "build:sw": "esbuild src/sw-data-service-worker.ts --bundle --minify --outfile=dist/sw-data-service-worker.js",
-    "serve": "concurrently \"node scripts/remoteserver.js\" \"node scripts/server.js\"",
+    "build:js": "esbuild src/p-ajax.ts --bundle --minify --outfile=dist/p-ajax.js",
+    "build:sw": "esbuild src/service-worker/service-worker.ts --bundle --minify --outfile=dist/p-ajax-sw.js",
+    "serve": "concurrently \"cross-env NODE_TLS_REJECT_UNAUTHORIZED='0' node scripts/remoteserver.js\" \"node scripts/server.js\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
@@ -17,6 +17,7 @@
   "devDependencies": {
     "body-parser": "^1.20.2",
     "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
     "esbuild": "^0.20.0",
     "express": "^4.18.2",
     "serve-index": "^1.9.1"

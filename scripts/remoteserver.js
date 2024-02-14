@@ -27,9 +27,18 @@ app.use((req, res, next) => {
 });
 
 
-app.get("/api/data-sample-request", (req, res) => {
-  const data = verifyToken(req.headers["authorization"].split(" ")[1]);
-  res.json({message: "Hello " + data.bsn});
+app.get("/api/data-sample-request", async (req, res) => {
+  const response =  await fetch("https://demo.duendesoftware.com/connect/userinfo");
+  if (response.status !== 200) {
+    return res.status(response.status).json({message: "Error fetching data " + response.status});
+  }
+
+  const data = await response.json();
+  return data;
+  // // https://demo.duendesoftware.com/connect/userinfo
+
+  // const data = verifyToken(req.headers["authorization"].split(" ")[1]);
+  // res.json({message: "Hello " + data.bsn});
 });
 
 app.listen("9001", () => {

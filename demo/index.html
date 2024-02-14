@@ -7,15 +7,25 @@
   </head>
 
   <body>
-    <sw-data
+    <p-ajax
       token="MyBearerToken"
       token-endpoint="/token"
       base-url="http://localhost:9001"
-    ></sw-data>
+    >
+      <p-auth-code-flow
+        id="CodeFlow"
+        discovery-url="https://demo.duendesoftware.com/"
+        client-id="interactive.public.short"
+        scope="openid email profile"
+        callback-path="/demo/callback-code-flow.html"
+        url-pattern="(/api/data-sample-request|/demo.duendesoftware.com/connect/userinfo)"
+      >
+      </p-auth-code-flow>
+    </p-ajax>
 
     <button id="FetchButton">Fetch</button>
 
-    <script defer src="../dist/sw-data.js"></script>
+    <script defer src="../dist/p-ajax.js"></script>
     <script defer src="./demo.js"></script>
   </body>
 </html>

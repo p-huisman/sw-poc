@@ -39,6 +39,6 @@ app.get("/token", (req, res) => {
    res.json({token: signToken(data)});
 });
 
-app.listen("9000", () => {
-  console.log(`Server listening on port 9000`);
+app.listen("8000", () => {
+  console.log(`Server listening on port 8000`);
 });
