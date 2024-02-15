@@ -1,5 +1,6 @@
 export interface Config {
   authClients: AuthClient[];
+  session: string;
 }
 
 export interface AuthClient {
@@ -12,6 +13,11 @@ export interface AuthClient {
   urlPattern: string;
 }
 
+export interface Tokens {
+  access_token: string;
+  id_token: string;
+}
+
 interface DiscoverdAuthServer {
   data: any;
   timestamp: number;
@@ -21,7 +27,9 @@ declare var self: ServiceWorkerGlobalScope;
 
 const configMap = new Map<string, Config>();
 
-const tokenMap = new Map<string, string>();
+const tokenMap = new Map<string, Tokens>();
+
+
 
 const discoverdAuthServers = new Map<string, DiscoverdAuthServer>();
 
@@ -29,19 +37,28 @@ export function getConfigByClientId(clientId: string): Config | undefined {
   return configMap.get(clientId);
 }
 
-export async function getTokenByClientId(clientId: string, authClientId: string): Promise<string | undefined> {
-  console.log("get token", `${clientId}.${authClientId}`)
-  return tokenMap.get(`${clientId}.${authClientId}` );
+export async function getTokensBySessionId(
+  sessionId: string,
+  authClientId: string
+): Promise<Tokens | undefined> {
+  console.log("get token", `${sessionId}.${authClientId}`);
+  return tokenMap.get(`${sessionId}.${authClientId}`);
 }
 
-export async function getNewTokenByClientId(clientId: string, authClientId: string): Promise<string | undefined> {
-  console.log("get new token", `${clientId}.${authClientId}`)
-  return "Lala";
+export async function getNewTokenBySessionId(
+  sessionId: string,
+  authClientId: string
+): Promise<Tokens | undefined> {
+  return tokenMap.get(`${sessionId}.${authClientId}`);
 }
 
-export async function setTokenByClientId(clientId: string, authClientId: string, token: string): Promise<void> {
-  console.log("set token", `${clientId}.${authClientId} ${token}`)
-  tokenMap.set(`${clientId}.${authClientId}`, token);
+export async function setTokenBySessionId(
+  sessionId: string,
+  authClientId: string,
+  tokens: Tokens
+): Promise<void> {
+  tokenMap.set(`${sessionId}.${authClientId}`, tokens);
+  console.log(tokenMap);
 }
 
 export async function updateConfigMap() {
@@ -58,18 +75,13 @@ export async function updateConfig(
   config: Config
 ): Promise<void> {
   configMap.set(clientId, config);
-
   await getDiscoveryDocuments(config.authClients);
-
-  config.authClients.forEach((client) => {
-    console.log(getDiscoveryDocumentByClientDiscoveryUrl(client.discoveryUrl));
-  });
-
   updateConfigMap();
 }
 
 export function handleConfigEvent(event: ExtendableMessageEvent) {
   const client: any = event.source;
+  // &state=
   updateConfig(client.id, event.data)
     .then(() => {
       event.ports[0].postMessage({
@@ -114,8 +126,9 @@ function getDiscoveryDocuments(authClients: AuthClient[]) {
   return Promise.all(requests);
 }
 
-export function getDiscoveryDocumentByClientDiscoveryUrl(clientDiscoveryUrl: string) {
+export function getDiscoveryDocumentByClientDiscoveryUrl(
+  clientDiscoveryUrl: string
+) {
   // todo: check and remove if the discovery document is expired
-  console.log("discover", Array.from(discoverdAuthServers.values()));
   return discoverdAuthServers.get(clientDiscoveryUrl).data;
 }

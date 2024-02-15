@@ -3,7 +3,7 @@ import { kebabCaseToCamelCase } from "./helpers/string";
 import "./p-auth-code-flow";
 
 export class SwDataElement extends HTMLElement {
-  waitForSwRegistration(): Promise<void> {
+  serviceWorkerRegistrationReady(): Promise<void> {
     return new Promise((resolve) => {
       const interval = setInterval(() => {
         if (this.#swRegistration) {
@@ -25,28 +25,43 @@ export class SwDataElement extends HTMLElement {
     });
   }
 
+  private get authClients() {
+    return Array.from(this.children).map((el) => {
+      const attr = Object.fromEntries(
+        Array.from(el.attributes).map((item) => [
+          kebabCaseToCamelCase(item.name),
+          item.value,
+        ])
+      );
+      return {
+        type: el.tagName.toLowerCase(),
+        ...attr,
+      };
+    });
+  }
+
   constructor(private readyForFetch = false) {
     super();
-    if (document.location.hash.indexOf("#") === 0 && document.location.hash.indexOf("code=") > -1) {
-      return;
+    this.#isCallbackPage =
+      document.location.hash.indexOf("#") === 0 &&
+      document.location.hash.indexOf("code=") > -1;
+    if (!this.#isCallbackPage) {
+      navigator.serviceWorker.addEventListener("message", (event) => {
+        if (event.data.type === "AUTHORIZATION_REQUIRED") {
+          sessionStorage.setItem("verifier", event.data.verifier);
+          sessionStorage.setItem("clientId", event.data.clientId);
+          const authorizationUrl = new URL(event.data.authorizationUrl);
+          const state = JSON.stringify({
+            location: document.location.href.replace(
+              document.location.origin,
+              ""
+            ),
+          });
+          authorizationUrl.searchParams.set("state", state);
+          document.location.href = authorizationUrl.toString();
+        }
+      });
     }
-    
-    navigator.serviceWorker.addEventListener("message", (event) => {
-      // AUTHORIZATION_REQUIRED
-      
-      if (event.data.type === "AUTHORIZATION_REQUIRED") {
-        sessionStorage.setItem("verifier", event.data.verifier);
-        const authorizationUrl = new URL(event.data.authorizationUrl);
-
-        const state = JSON.stringify({
-          location: document.location.href.replace(document.location.origin, ""),
-        });
-        sessionStorage.setItem("state", state);
-        
-        // authorizationUrl.searchParams.set("state", state);
-        document.location.href = authorizationUrl.toString();
-      }
-    });
 
     if (!("serviceWorker" in navigator)) {
       console.error("Service workers are not supported by this browser");
@@ -81,6 +96,8 @@ export class SwDataElement extends HTMLElement {
   static get observedAttributes() {
     return ["token", "token-endpoint", "base-url"];
   }
+
+  #isCallbackPage = false;
 
   #swRegistration: ServiceWorkerRegistration;
 
@@ -128,45 +145,61 @@ export class SwDataElement extends HTMLElement {
     return session;
   }
 
+  async #processCallback(verifier: string, clientId: string) {
+    await this.serviceWorkerRegistrationReady();
+    const messageChannel = new MessageChannel();
+
+    messageChannel.port1.onmessage = (event) => {
+      if (event.data.type === "AUTHORIZATION_RESPONSE") {
+        console.log("AUTHORIZATION_RESPONSE", event.data);
+      }
+    };
+    this.#swRegistration.active?.postMessage({
+      type: "AUTHORIZATION_RESPONSE",
+      session: this.session,
+      authClients: this.authClients,
+      verifier,
+      clientId,
+    });
+  }
+
   async #updateConfig() {
-    if (!this.#token || !this.#tokenEndpoint || !this.#baseUrl) {
+    if (
+      !this.#token ||
+      !this.#tokenEndpoint ||
+      !this.#baseUrl ||
+      this.#isCallbackPage
+    ) {
       return;
     }
-    await this.waitForSwRegistration();
+    await this.serviceWorkerRegistrationReady();
     const messageChannel = new MessageChannel();
 
     messageChannel.port1.onmessage = (event) => {
       if (event.data.type === "CONFIG") {
-        console.log(event.data);
         this.readyForFetch = true;
         fetchQueueAndRestoreOriginalFetch();
       }
     };
 
-    const authClients = Array.from(this.children).map((el) => {
-        const attr = Object.fromEntries(
-          Array.from(el.attributes).map((item) => [kebabCaseToCamelCase(item.name), item.value])
-        );
-        return {
-          type: el.tagName.toLowerCase(),
-          ...attr,
-        };
-      }
-    );
-
-    console.log(authClients);
-
     this.#swRegistration.active?.postMessage(
       {
         type: "CONFIG",
         session: this.session,
-        token: this.#token,
-        tokenEndpoint: this.#tokenEndpoint,
-        baseUrl: this.#baseUrl,
-        authClients,
+        authClients: this.authClients,
       },
       [messageChannel.port2]
     );
+  }
+
+  connectedCallback() {
+    if (this.#isCallbackPage) {
+      const verifier = sessionStorage.getItem("verifier");
+      const clientId = sessionStorage.getItem("clientId");
+      // sessionStorage.removeItem("verifier");
+      // sessionStorage.removeItem("clientId");
+      this.#processCallback(verifier, clientId);
+    }
   }
 
   attributeChangedCallback(name: string, oldValue: string, newValue: string) {
