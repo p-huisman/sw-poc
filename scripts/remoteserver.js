@@ -3,22 +3,7 @@ const express = require("express");
 const app = express({strict: false});
 const fs = require("fs");
 const path = require("path");
-const jwt = require('jsonwebtoken')
 
-const publicKey = fs.readFileSync(path.join(__dirname, 'keys', 'rsa.key.pub'), 'utf8')
-
-const verifyToken = (token) => {
-  try {
-      return jwt.verify(token, publicKey, { algorithm: 'RS256'});
-  } catch (err) {
-      /*
-          TODO throw http 500 here 
-          ! Dont send JWT error messages to the client
-          ! Let exception handler handles this error
-      */
-      throw err
-  }
-}
 
 app.use((req, res, next) => { 
   res.set("Access-Control-Allow-Origin", "*");
@@ -35,10 +20,6 @@ app.get("/api/data-sample-request", async (req, res) => {
 
   const data = await response.json();
   return data;
-  // // https://demo.duendesoftware.com/connect/userinfo
-
-  // const data = verifyToken(req.headers["authorization"].split(" ")[1]);
-  // res.json({message: "Hello " + data.bsn});
 });
 
 app.listen("9001", () => {

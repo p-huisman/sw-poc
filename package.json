@@ -1,28 +1,27 @@
 {
-  "name": "p-ajax",
+  "name": "p-oauth",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "OAuth2 client web component",
+  "main": "dist/p-oauth.js",
   "scripts": {
-    "develop:js": "esbuild src/p-ajax.ts --bundle --watch --outfile=dist/p-ajax.js",
-    "develop:sw": "esbuild src/service-worker/service-worker.ts --bundle --watch --outfile=dist/p-ajax-sw.js",
+    "develop:js": "esbuild src/components/p-oauth.ts --bundle --watch --outfile=dist/p-oauth.js",
+    "develop:sw": "esbuild src/service-worker/service-worker.ts --bundle --watch --outfile=dist/p-oauth-sw.js",
     "develop": "concurrently \"npm:develop:js\" \"npm:develop:sw\" \"npm:serve\"",
-    "build:js": "esbuild src/p-ajax.ts --bundle --minify --outfile=dist/p-ajax.js",
-    "build:sw": "esbuild src/service-worker/service-worker.ts --bundle --minify --outfile=dist/p-ajax-sw.js",
+    "build:js": "esbuild src/components/p-oauth.ts --bundle --minify --outfile=dist/p-oauth.js",
+    "build": "concurrently \"npm:build:js\" \"npm:build:sw\"",
+    "build:sw": "esbuild src/service-worker/service-worker.ts --bundle --minify --outfile=dist/p-oauth-sw.js",
     "serve": "concurrently \"cross-env NODE_TLS_REJECT_UNAUTHORIZED='0' node scripts/remoteserver.js\" \"node scripts/server.js\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "",
-  "license": "ISC",
+  "author": "Peter Huisman",
+  "license": "UNLICENSED",
   "devDependencies": {
     "body-parser": "^1.20.2",
     "concurrently": "^8.2.2",
     "cross-env": "^7.0.3",
+    "dexie": "^3.2.5",
     "esbuild": "^0.20.0",
     "express": "^4.18.2",
     "serve-index": "^1.9.1"
-  },
-  "dependencies": {
-    "jsonwebtoken": "^9.0.2"
   }
 }

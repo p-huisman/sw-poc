@@ -7,11 +7,7 @@
   </head>
 
   <body>
-    <p-ajax
-      token="MyBearerToken"
-      token-endpoint="/token"
-      base-url="http://localhost:9001"
-    >
+    <p-oauth>
       <p-auth-code-flow
         id="CodeFlow"
         discovery-url="https://demo.duendesoftware.com/"
@@ -21,11 +17,25 @@
         url-pattern="(/api/data-sample-request|/demo.duendesoftware.com/connect/userinfo)"
       >
       </p-auth-code-flow>
-    </p-ajax>
+    </p-oauth>
 
     <button id="FetchButton">Fetch</button>
+    <script>
+    document.getElementById("FetchButton").addEventListener("click", doFetch);
+    function doFetch() {
+      fetch("http://localhost:9001/api/data-sample-request").then((response) => {
+        response.json().then((data) => {
+          console.log(data);
+        });
+      });
+    }
+    // dom conent loaded
+    document.addEventListener("DOMContentLoaded", function () {
+      //  doFetch();
+    });
+    </script>
 
-    <script defer src="../dist/p-ajax.js"></script>
-    <script defer src="./demo.js"></script>
+    <script defer src="../dist/p-oauth.js"></script>
+    
   </body>
 </html>
