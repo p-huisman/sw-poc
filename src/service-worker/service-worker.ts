@@ -3,12 +3,9 @@ import {
   generateRandomString,
   pkceChallengeFromVerifier,
 } from "../helpers/crypto";
+import { setupDebugConsole } from "./debug-console";
 import { fetchWithToken } from "./fetch";
 import { createOAuthDatabase, SessionRecord } from "./session-database";
-
-declare var self: ServiceWorkerGlobalScope;
-
-const oauthDatabase = createOAuthDatabase(self);
 
 export type {};
 
@@ -19,9 +16,11 @@ interface CallbackParam {
   state: any;
 }
 
-let callBacksInProgress: CallbackParam[] = [];
-
+declare var self: ServiceWorkerGlobalScope;
+const oauthDatabase = createOAuthDatabase(self);
 const tokens = new Map<string, any>();
+let debugConsole = setupDebugConsole(false, "[SW]");
+let callBacksInProgress: CallbackParam[] = [];
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -29,6 +28,34 @@ self.addEventListener("install", () => {
 
 self.addEventListener("activate", (event: ExtendableEvent) => {
   event.waitUntil(self.clients.claim());
+});
+
+self.addEventListener("message", async (event: ExtendableMessageEvent) => {
+  const eventClient = event.source as Client;
+
+  switch (event.data.type) {
+    case "debug-console":
+      debugConsole = setupDebugConsole(event.data.debug, "[SW]");
+      break;
+    case "register-auth-client":
+      // remove old sessions
+      await oauthDatabase.removeExpiredSessions();
+
+      // add or update session
+      const { authClient, session } = event.data;
+      await oauthDatabase.addSession(
+        session,
+        eventClient.id,
+        authClient.id,
+        authClient
+      );
+
+      event.ports[0].postMessage({
+        type: "register-auth-client",
+        success: true,
+      });
+      break;
+  }
 });
 
 self.addEventListener("fetch", async (event: FetchEvent) => {
@@ -60,11 +87,13 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
       session.data.discoveryUrl
     );
     if (tokenData) {
-      console.info("fetch with token", tokenData.access_token);
+      debugConsole.info("fetch with token", tokenData.access_token);
       fetchWithToken(event.request, tokenData.access_token)
         .then((fetchResponse) => {
           if (fetchResponse.status === 401) {
-            console.info("401 on fetch with token, trying to refresh token");
+            debugConsole.info(
+              "401 on fetch with token, trying to refresh token"
+            );
             refreshtTokens(
               discoverOpenId.token_endpoint,
               session.data.clientId,
@@ -72,36 +101,36 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
             )
               .then((response) => {
                 if (response.ok) {
-                  console.info("token refreshed");
+                  debugConsole.info("token refreshed");
                   response.json().then((newTokenData) => {
                     tokens.set(
                       `${session.session}_${session.data.id}`,
                       newTokenData
                     );
-                    console.table(tokens);
-                    console.info(
+                    debugConsole.table(tokens);
+                    debugConsole.info(
                       "fetch with new token",
                       newTokenData.access_token
                     );
                     fetchWithToken(event.request, newTokenData.access_token)
                       .then((fetchResponse) => {
                         if (fetchResponse.status === 401) {
-                          console.info(
+                          debugConsole.info(
                             "401 on fetch with new token, send authorization required message"
                           );
                           postAthorizationRequiredMessage(event, session);
                         } else {
-                          console.info("fetch with new token success");
+                          debugConsole.info("fetch with new token success");
                           responseResolve(fetchResponse);
                         }
                       })
                       .catch((e) => {
-                        console.error("fetch with new token error", e);
+                        debugConsole.error("fetch with new token error", e);
                         responseReject(e);
                       });
                   });
                 } else {
-                  console.error(
+                  debugConsole.error(
                     "refreshing token response not ok",
                     response.status,
                     response
@@ -110,20 +139,20 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
                 }
               })
               .catch((e) => {
-                console.error("error refreshing token response not ok", e);
+                debugConsole.error("error refreshing token response not ok", e);
                 responseReject(e);
               });
           } else {
-            console.info("fetch with token success");
+            debugConsole.info("fetch with token success");
             responseResolve(fetchResponse);
           }
         })
         .catch((e) => {
-          console.error("fetch with token error", e);
+          debugConsole.error("fetch with token error", e);
           responseResolve(e);
         });
     } else {
-      console.error(
+      debugConsole.error(
         "no token but is required for request, send authorization required message"
       );
       postAthorizationRequiredMessage(event, session);
@@ -132,31 +161,6 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
     fetch(event.request)
       .then((fetchResponse) => responseResolve(fetchResponse))
       .catch((e) => responseReject(e));
-  }
-});
-
-self.addEventListener("message", async (event: ExtendableMessageEvent) => {
-  const eventClient = event.source as Client;
-
-  switch (event.data.type) {
-    case "register-auth-client":
-      // remove old sessions
-      await oauthDatabase.removeExpiredSessions();
-
-      // add or update session
-      const { authClient, session } = event.data;
-      await oauthDatabase.addSession(
-        session,
-        eventClient.id,
-        authClient.id,
-        authClient
-      );
-
-      event.ports[0].postMessage({
-        type: "register-auth-client",
-        success: true,
-      });
-      break;
   }
 });
 
