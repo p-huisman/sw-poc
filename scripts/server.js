@@ -24,6 +24,6 @@ app.use(bodyParser.json());
 //    res.json({token: signToken(data)});
 // });
 
-app.listen("8000", () => {
-  console.log(`Server listening on port 8000`);
+app.listen("9000", () => {
+  console.log(`Server listening on port 9000`);
 });

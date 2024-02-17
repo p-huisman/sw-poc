@@ -9,18 +9,19 @@ import { createOAuthDatabase, SessionRecord } from "./session-database";
 
 export type {};
 
-interface CallbackParam {
+interface AuthorizationCallbackParam {
   session: SessionRecord;
   verifier: string;
   tokenEndpoint: string;
   state: any;
 }
 
+
 declare var self: ServiceWorkerGlobalScope;
 const oauthDatabase = createOAuthDatabase(self);
 const tokens = new Map<string, any>();
 let debugConsole = setupDebugConsole(false, "[SW]");
-let callBacksInProgress: CallbackParam[] = [];
+let authorizationCallbacksInProgress: AuthorizationCallbackParam[] = [];
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -37,6 +38,7 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
     case "debug-console":
       debugConsole = setupDebugConsole(event.data.debug, "[SW]");
       break;
+    
     case "register-auth-client":
       // remove old sessions
       await oauthDatabase.removeExpiredSessions();
@@ -55,6 +57,47 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
         success: true,
       });
       break;
+   
+    case "logoff":
+      const tokenData = tokens.get(
+        `${event.data.session}_${event.data.clientId}`
+      );
+      const currentSession = await oauthDatabase.getSession(
+        event.data.session,
+        event.data.clientId
+      );
+      if (currentSession && tokenData) {
+        const discoverOpenId = await oauthDatabase.getOpenIdConfiguration(
+          currentSession.data.discoveryUrl
+        );
+        await revokeTokens(
+          discoverOpenId.revocation_endpoint,
+          currentSession.data.clientId,
+          tokenData
+        );
+        const swClient = await self.clients.get(eventClient.id); 
+        const currentUrl = new URL(swClient.url);
+       
+        const params = "?" +
+        encodedStringFromObject(
+          {
+            id_token_hint: tokenData.id_token,
+            post_logout_redirect_uri:
+            currentUrl.origin +
+              currentSession.data.callbackPath + "#post_end_session_redirect_uri=" + encodeURIComponent(event.data.url),
+          },
+          encodeURIComponent,
+          "&",
+        )
+        tokens.delete(`${event.data.session}_${event.data.clientId}`);      
+       
+        swClient.postMessage({
+          type: "end-session",
+          location: discoverOpenId.end_session_endpoint + params,
+        });
+        
+      }
+      break;
   }
 });
 
@@ -71,11 +114,11 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
 
   const windowClient = await getWindowClient(event.clientId);
 
-  if (callBacksInProgress.length > 0 && windowClient?.url) {
-    handleAuthorizationCallback(windowClient, callBacksInProgress[0]);
-    callBacksInProgress = [];
+  if (authorizationCallbacksInProgress.length > 0 && windowClient?.url) {
+    handleAuthorizationCallback(windowClient, authorizationCallbacksInProgress[0]);
+    authorizationCallbacksInProgress = [];
   }
-
+  
   const session = await oauthDatabase.getSessionForRequest(
     event.request.url,
     event.clientId
@@ -196,7 +239,7 @@ async function postAthorizationRequiredMessage(
       encodeURIComponent,
       "&"
     );
-  callBacksInProgress.push({
+  authorizationCallbacksInProgress.push({
     verifier,
     tokenEndpoint: discoverOpenId.token_endpoint,
     session,
@@ -217,7 +260,7 @@ async function getWindowClient(id: string): Promise<WindowClient> {
 
 async function handleAuthorizationCallback(
   windowClient: WindowClient,
-  callBack: CallbackParam
+  callBack: AuthorizationCallbackParam
 ) {
   const hash = windowClient.url.split("#", 2)[1];
   const authResponse = getAuthorizationCallbackResponseData(hash);
@@ -284,3 +327,39 @@ function getAuthorizationCallbackResponseData(queryString: string): any {
     return result;
   }, {});
 }
+
+function revokeTokens(tokenEndpoint: string, clientId: string, tokens: any) {
+  const revokePromises: Promise<Response>[] = [];
+  [
+    ["access_token", tokens.access_token],
+    ["refresh_token", tokens.refresh_token],
+  ].forEach((token, index) => {
+    if (token) {
+      revokePromises.push(
+        revokeToken(tokenEndpoint, clientId, token[0], token[1])
+      );
+    }
+  });
+  return Promise.all(revokePromises);
+}
+
+function revokeToken(
+  tokenEndpoint: string,
+  clientId: string,
+  tokenType: string,
+  token: string
+) {
+  const body = encodedStringFromObject({
+    client_id: clientId,
+    token,
+    token_type_hint: tokenType,
+  });
+  return fetch(tokenEndpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+    },
+    body,
+  });
+}
+

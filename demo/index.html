@@ -18,36 +18,51 @@
         url-pattern="(/api/data-sample-request|/demo.duendesoftware.com/connect/userinfo|demo.duendesoftware.com/api/)"
       >
       </p-auth-code-flow>
+      <p-auth-code-flow
+        id="particulier"
+        discovery-url="https://app-pggm-pggm-onewelcome-deelnemers-pfzw-tstsvr-o.pggm-ase-team7-shared-ase-o.appserviceenvironment.net/"
+        client-id="particulier"
+        scope="openid profile offline_access"
+        callback-path="/demo/callback-code-flow.html"
+        url-pattern="(https://services-kvta.team_7.o.pggm-intra.intern/|ttps://app-pggm-pggm-onewelcome-deelnemers-pfzw-tstsvr-o.pggm-ase-team7-shared-ase-o.appserviceenvironment.net/connect/userinfo)"
+        storage="session"
+        storage-key="p-auth-token"
+      ></p-auth-code-flow>
     </p-oauth>
 
     <button id="FetchButton">Fetch</button>
+
+    <button id="Logoff2Button">Logoff 2</button>
+
     <script>
-    document.getElementById("FetchButton").addEventListener("click", doFetch);
-    function doFetch() {
-      fetch("https://demo.duendesoftware.com/connect/userinfo").then((response) => {
-        if (!response.ok) {
-          console.error("Network response was not ok");
-        } else {
-          response.json().then((data) => {
-            console.info(data);
-          });
-        }
-        
+      document.getElementById("FetchButton").addEventListener("click", () => {
+        doFetch("https://demo.duendesoftware.com/connect/userinfo");
       });
 
-      // fetch("http://localhost:9001/api/data-sample-request").then((response) => {
-      //   response.json().then((data) => {
-      //     console.log(data);
-      //   });
-      // });
-    }
-    // dom conent loaded
-    document.addEventListener("DOMContentLoaded", function () {
-        doFetch();
-    });
+      document.getElementById("Logoff2Button").addEventListener("click", () => {
+        document.getElementById("particulier").logoff("/");
+      })
+
+      function doFetch(url) {
+        fetch(url).then((response) => {
+          if (!response.ok) {
+            console.error("Network response was not ok");
+          } else {
+            response.json().then((data) => {
+              console.info(data);
+            });
+          }
+        });
+      }
+
+      // dom conent loaded
+      document.addEventListener("DOMContentLoaded", function () {
+        doFetch(
+          "https://services-kvta.team_7.o.pggm-intra.intern/MijnOmgeving_vnext/particulier/personalia"
+        );
+      });
     </script>
 
     <script defer src="../dist/p-oauth.js"></script>
-    
   </body>
 </html>

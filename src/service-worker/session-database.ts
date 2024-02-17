@@ -53,7 +53,6 @@ class OAuthDatabase extends Dexie {
 
   }
 
-  
   public async getSessionForRequest(url: string, window: string): Promise<any> {
     const allSessions = (await database.sessions.toArray()).filter(
       (s) => s.window === window
@@ -66,6 +65,11 @@ class OAuthDatabase extends Dexie {
     return null;
   }
 
+  async getSession(session: string, client: string) {
+    const allSessions = await database.sessions.toArray();
+    return allSessions.find((e) => e.client === client && e.session === session); //database.sessions.get([session, clientId]);
+  }
+  
   public async getOpenIdConfiguration(discoveryUrl: string): Promise<any> {
     const record = await database.openIdDiscoveries.get(discoveryUrl);
     return new Promise((resolve, reject) => {

@@ -24,5 +24,10 @@ export class AuthCodeFlowElement extends PAuthBaseElement {
       );
     });
   }
+
+  logoff(url: string) {
+    console.log("logoff", this.id);
+    this.oAuth.logoff(this.id, url);
+  }
 }
 customElements.define("p-auth-code-flow", AuthCodeFlowElement);

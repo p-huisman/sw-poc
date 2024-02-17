@@ -21,6 +21,18 @@ export class POauthElement extends HTMLElement {
     this.#initialAuthClients = Array.from(this.childNodes).filter(
       (n) => n instanceof HTMLElement
     ) as HTMLElement[];
+    navigator.serviceWorker.addEventListener(
+      "message",
+      (event: MessageEventInit) => {
+        if (event.data.type === "end-session") {
+          if (event.data.replace) {
+            document.location.replace(event.data.location);
+          } else {
+            document.location.href = event.data.location;
+          }
+        }
+      }
+    );
   }
 
   get #serviceWorkerRegistrationActive(): Promise<void> {
@@ -92,6 +104,32 @@ export class POauthElement extends HTMLElement {
         },
         [messageChannel.port2]
       );
+    });
+  };
+
+  connectedCallback(): void {
+    if (document.location.hash.indexOf("post_end_session_redirect_uri=") > 0) {
+      const hasData = document.location.href
+        .split("#", 2)[1]
+        .split("&")
+        .reduce((result: any, item: any) => {
+          const parts = item.split("=");
+          result[parts[0]] = decodeURIComponent(parts[1]);
+          return result;
+        }, {});
+      if (hasData.post_end_session_redirect_uri) {
+        document.location.replace(hasData.post_end_session_redirect_uri);
+      }
+    }
+  }
+
+  logoff = async (clientId: string, url: string): Promise<void> => {
+    await this.#serviceWorkerRegistrationActive;
+    this.serviceWorkerRegistration.active.postMessage({
+      type: "logoff",
+      session: this.session,
+      clientId,
+      url,
     });
   };
 }
