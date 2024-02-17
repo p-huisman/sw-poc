@@ -1,13 +1,10 @@
-import {
-  startInterseptingFetch,
-  stopInterseptingFetch,
-} from "./fetch-interceptor";
+import { startFetchQueuing, stopFetchQueuing } from "./fetch-queue";
 import { installServiceWorker } from "./sw-installer";
 
 import "./p-auth-code-flow";
 import { kebabCaseToCamelCase } from "../helpers/string";
 
-startInterseptingFetch();
+startFetchQueuing();
 
 export class POauthElement extends HTMLElement {
   constructor(public serviceWorkerRegistration: ServiceWorkerRegistration) {
@@ -53,7 +50,7 @@ export class POauthElement extends HTMLElement {
   }
 
   #allAuthClientsRegistered = async (): Promise<void> => {
-    stopInterseptingFetch();
+    stopFetchQueuing();
   };
 
   registerAuthClient = async (authClient: HTMLElement): Promise<void> => {

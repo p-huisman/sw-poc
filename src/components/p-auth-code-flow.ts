@@ -9,14 +9,13 @@ export class AuthCodeFlowElement extends PAuthBaseElement {
         "message",
         (event: MessageEventInit) => {
           if (
-            event.data.type ===
-            "authorize" && event.data.client === this.id
+            event.data.type === "authorize" &&
+            event.data.client === this.id
           ) {
             document.location.href = event.data.url;
-          }
-          else if (
-            event.data.type ===
-            "authorization-complete" && event.data.client === this.id
+          } else if (
+            event.data.type === "authorization-complete" &&
+            event.data.client === this.id
           ) {
             sessionStorage.setItem(this.id, JSON.stringify(event.data));
             document.location.replace(event.data.location);

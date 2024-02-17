@@ -8,5 +8,4 @@ export class PAuthBaseElement extends HTMLElement {
   get oAuth(): POauthElement {
     return this.closest("p-oauth");
   }
-  
 }

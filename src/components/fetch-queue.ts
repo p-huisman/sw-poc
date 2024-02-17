@@ -15,35 +15,35 @@ const originalFetch = fetch;
 const fetchQueue: QueuedFetchRequest[] = [];
 
 /**
- * Start intercepting the fetch requests
+ * Start queuing the fetch requests
  * @returns Promise<void>
  * @async
  * @example
  * ```
- * await startInterseptingFetch();
+ * await startFetchQueuing();
  * ```
- * @see stopInterseptingFetch
+ * @see stopFetchQueuing
  * 
  * @description This function replaces the original fetch function with a new one that queues the requests
  */
-export async function startInterseptingFetch(): Promise<void> {
+export async function startFetchQueuing(): Promise<void> {
   window.fetch = queueFetchRequest;
 }
 
 /**
- * Stop intercepting the fetch requests
+ * Stop queuing the fetch requests
  * @param removeQueue - remove the queue before restoring the original fetch function
  * @returns Promise<void>
  * @async
  * @example
  * ```
- * await stopInterseptingFetch();
+ * await stopFetchQueuing();
  * ```
- * @see startInterseptingFetch
+ * @see startFetchQueuing
  * 
  * @description This function restores the original fetch function and processes the queued requests
  */
-export async function stopInterseptingFetch(removeQueue = false): Promise<void> {
+export async function stopFetchQueuing(removeQueue = false): Promise<void> {
   window.fetch = originalFetch;
   if (removeQueue) {
     while (fetchQueue.length > 0) {
