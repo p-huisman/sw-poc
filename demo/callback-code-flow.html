@@ -9,12 +9,12 @@
   <body>
     <p-oauth>
       <p-auth-code-flow
-        id="CodeFlow"
+        id="interactive.public.short"
         discovery-url="https://demo.duendesoftware.com/"
         client-id="interactive.public.short"
         scope="openid email profile offline_access"
         callback-path="/demo/callback-code-flow.html"
-        url-pattern="(/api/data-sample-request|/demo.duendesoftware.com/connect/userinfo)"
+        url-pattern="(/api/data-sample-request|/demo.duendesoftware.com/connect/userinfo|demo.duendesoftware.com/api/)"
       >
       </p-auth-code-flow>
     </p-oauth>

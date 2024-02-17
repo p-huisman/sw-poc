@@ -55,17 +55,78 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
   );
 
   if (session) {
-    const tokenData = tokens.get(`${session.session}_${session.data.id}`);
+    let tokenData = tokens.get(`${session.session}_${session.data.id}`);
+    const discoverOpenId = await oauthDatabase.getOpenIdConfiguration(
+      session.data.discoveryUrl
+    );
     if (tokenData) {
+      console.info("fetch with token", tokenData.access_token);
       fetchWithToken(event.request, tokenData.access_token)
-        .then((fetchResponse) => responseResolve(fetchResponse))
+        .then((fetchResponse) => {
+          if (fetchResponse.status === 401) {
+            console.info("401 on fetch with token, trying to refresh token");
+            refreshtTokens(
+              discoverOpenId.token_endpoint,
+              session.data.clientId,
+              tokenData.refresh_token
+            )
+              .then((response) => {
+                if (response.ok) {
+                  console.info("token refreshed");
+                  response.json().then((newTokenData) => {
+                    tokens.set(
+                      `${session.session}_${session.data.id}`,
+                      newTokenData
+                    );
+                    console.table(tokens);
+                    console.info(
+                      "fetch with new token",
+                      newTokenData.access_token
+                    );
+                    fetchWithToken(event.request, newTokenData.access_token)
+                      .then((fetchResponse) => {
+                        if (fetchResponse.status === 401) {
+                          console.info(
+                            "401 on fetch with new token, send authorization required message"
+                          );
+                          postAthorizationRequiredMessage(event, session);
+                        } else {
+                          console.info("fetch with new token success");
+                          responseResolve(fetchResponse);
+                        }
+                      })
+                      .catch((e) => {
+                        console.error("fetch with new token error", e);
+                        responseReject(e);
+                      });
+                  });
+                } else {
+                  console.error(
+                    "refreshing token response not ok",
+                    response.status,
+                    response
+                  );
+                  postAthorizationRequiredMessage(event, session);
+                }
+              })
+              .catch((e) => {
+                console.error("error refreshing token response not ok", e);
+                responseReject(e);
+              });
+          } else {
+            console.info("fetch with token success");
+            responseResolve(fetchResponse);
+          }
+        })
         .catch((e) => {
-          // todo: renew token and retry request
-          responseReject(e);
+          console.error("fetch with token error", e);
+          responseResolve(e);
         });
     } else {
-      // no token, but token is required
-      postAtthorizationRequiredMessage(event, session);
+      console.error(
+        "no token but is required for request, send authorization required message"
+      );
+      postAthorizationRequiredMessage(event, session);
     }
   } else {
     fetch(event.request)
@@ -99,7 +160,7 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
   }
 });
 
-async function postAtthorizationRequiredMessage(
+async function postAthorizationRequiredMessage(
   event: FetchEvent,
   session: SessionRecord
 ) {
@@ -174,6 +235,7 @@ async function handleAuthorizationCallback(
     .then((response) => response.json())
     .catch((e) => e);
   if (tokenResponse instanceof Error) {
+    throw tokenResponse;
   } else {
     tokens.set(
       `${callBack.session.session}_${callBack.session.data.id}`,
@@ -186,6 +248,26 @@ async function handleAuthorizationCallback(
       location: callBack.state.location,
     });
   }
+}
+
+async function refreshtTokens(
+  tokenEndpoint: string,
+  clientId: string,
+  refreshToken: string
+): Promise<Response> {
+  const body = encodedStringFromObject({
+    client_id: clientId,
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+  });
+
+  return fetch(tokenEndpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+    },
+    body,
+  });
 }
 
 function getAuthorizationCallbackResponseData(queryString: string): any {

@@ -4,7 +4,6 @@ const app = express({strict: false});
 const fs = require("fs");
 const path = require("path");
 
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
 
 app.use((req, res, next) => { 
@@ -15,13 +14,7 @@ app.use((req, res, next) => {
 
 
 app.get("/api/data-sample-request", async (req, res) => {
-  const response =  await fetch("https://demo.duendesoftware.com/connect/userinfo", {headers: {Authorization: req.headers.authorization}});
-  if (response.status !== 200) {
-    return res.status(response.status).json({message: "Error fetching data " + response.status});
-  }
-
-  const data = await response.json();
-  return data;
+  res.json({data: "This is a sample response from the remote server"});
 });
 
 app.listen("9001", () => {
