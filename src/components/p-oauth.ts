@@ -11,7 +11,7 @@ export class POauthElement extends HTMLElement {
     super();
     let swInstallResolver: () => void;
     const promise = new Promise<void>((resolve) => { swInstallResolver = resolve });
-    this.#swInstalled = promise;
+    this.swInstalled = promise;
     installServiceWorker().then((sw) => {
       this.serviceWorkerRegistration = sw;
       swInstallResolver();
@@ -30,7 +30,7 @@ export class POauthElement extends HTMLElement {
     });
   }
 
-  #swInstalled: PromiseLike<any>;
+  swInstalled: Promise<void>;
 
   #initialAuthClients: HTMLElement[] = [];
 
@@ -50,7 +50,6 @@ export class POauthElement extends HTMLElement {
   };
 
   registerAuthClient = async (authClient: HTMLElement): Promise<void> => {
-    // await this.#swInstalled;
     await this.#serviceWorkerRegistrationActive;
     return new Promise((resolve, reject) => {
       const messageChannel = new MessageChannel();

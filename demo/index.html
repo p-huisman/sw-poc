@@ -8,11 +8,12 @@
 
   <body>
     <p-oauth>
+      <!-- offline_access is needed for refresh tokens-->
       <p-auth-code-flow
         id="CodeFlow"
         discovery-url="https://demo.duendesoftware.com/"
         client-id="interactive.public.short"
-        scope="openid email profile"
+        scope="openid email profile offline_access"
         callback-path="/demo/callback-code-flow.html"
         url-pattern="(/api/data-sample-request|/demo.duendesoftware.com/connect/userinfo)"
       >
@@ -23,15 +24,26 @@
     <script>
     document.getElementById("FetchButton").addEventListener("click", doFetch);
     function doFetch() {
-      fetch("http://localhost:9001/api/data-sample-request").then((response) => {
-        response.json().then((data) => {
-          console.log(data);
-        });
+      fetch("https://demo.duendesoftware.com/connect/userinfo").then((response) => {
+        if (!response.ok) {
+          console.error("Network response was not ok");
+        } else {
+          response.json().then((data) => {
+            console.info(data);
+          });
+        }
+        
       });
+
+      // fetch("http://localhost:9001/api/data-sample-request").then((response) => {
+      //   response.json().then((data) => {
+      //     console.log(data);
+      //   });
+      // });
     }
     // dom conent loaded
     document.addEventListener("DOMContentLoaded", function () {
-      //  doFetch();
+        doFetch();
     });
     </script>
 

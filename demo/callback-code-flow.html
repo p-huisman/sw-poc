@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+
+  <body>
+    <p-oauth>
+      <p-auth-code-flow
+        id="CodeFlow"
+        discovery-url="https://demo.duendesoftware.com/"
+        client-id="interactive.public.short"
+        scope="openid email profile offline_access"
+        callback-path="/demo/callback-code-flow.html"
+        url-pattern="(/api/data-sample-request|/demo.duendesoftware.com/connect/userinfo)"
+      >
+      </p-auth-code-flow>
+    </p-oauth>
+
+    
+    <script defer src="../dist/p-oauth.js"></script>
+    
+  </body>
+</html>

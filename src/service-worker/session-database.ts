@@ -14,7 +14,7 @@ export const createOAuthDatabase = (
 
 class OAuthDatabase extends Dexie {
   sessions!: Dexie.Table<SessionRecord, [string, string, string]>;
-  openIdDiscoveries!: Dexie.Table<OpenIdDiscoveryRecord, [string, any]>;
+  openIdDiscoveries!: Dexie.Table<OpenIdDiscoveryRecord, string>;
   constructor(private swGlobalScope: ServiceWorkerGlobalScope) {
     super("OAuthDatabase");
     this.version(1).stores({
@@ -51,34 +51,13 @@ class OAuthDatabase extends Dexie {
       data,
     });
 
-    const OpenIdDiscoveryRecord = await database.openIdDiscoveries.get(
-      data.discoveryUrl
+  }
+
+  
+  public async getSessionForRequest(url: string, window: string): Promise<any> {
+    const allSessions = (await database.sessions.toArray()).filter(
+      (s) => s.window === window
     );
-    if (!OpenIdDiscoveryRecord) {
-      this.discoverOpenId(data.discoveryUrl);
-    }
-  }
-
-  private discoverOpenId(discoveryUrl: string): void {
-    let url = discoveryUrl;
-    if (url.indexOf(".well-known/openid-configuration") < 0) {
-      if (url.slice(-1) !== "/") {
-        url = url + "/";
-      }
-      url = url + ".well-known/openid-configuration";
-    }
-    this.swGlobalScope
-      .fetch(url)
-      .then((response) => response.json())
-      .then((data) => {
-        data = { ...data, timestamp: new Date().getTime() };
-        database.openIdDiscoveries.add({ url: discoveryUrl, data });
-      });
-  }
-
-  public async getClientForRequest(url: string, window: string): Promise<any> {
-    
-    const allSessions = (await database.sessions.toArray()).filter((s) => s.window === window);
     const allPatterns = allSessions.map((s) => s.data.urlPattern);
     const matchingPattern = allPatterns.find((p) => new RegExp(p).test(url));
     if (matchingPattern) {
@@ -87,6 +66,31 @@ class OAuthDatabase extends Dexie {
     return null;
   }
 
+  public async getOpenIdConfiguration(discoveryUrl: string): Promise<any> {
+    const record = await database.openIdDiscoveries.get(discoveryUrl);
+    return new Promise((resolve, reject) => {
+      if (record) {
+        resolve(record.data);
+      } else {
+        let url = discoveryUrl;
+        if (url.indexOf(".well-known/openid-configuration") < 0) {
+          if (url.slice(-1) !== "/") {
+            url = url + "/";
+          }
+          url = url + ".well-known/openid-configuration";
+        }
+        this.swGlobalScope
+          .fetch(url)
+          .then((response) => response.json())
+          .then((data) => {
+            data = { ...data, timestamp: new Date().getTime() };
+            database.openIdDiscoveries.add({ url: discoveryUrl, data }).then(() => {
+              resolve(data);
+            });;
+          });
+      }
+    });
+  }
 }
 
 export interface SessionRecord {
