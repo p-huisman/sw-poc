@@ -1,6 +1,9 @@
-export async function getOpenIdConfiguration(serviceWorkerGlobalScope: ServiceWorkerGlobalScope, discoveryUrl: string) {
+export async function getOpenIdConfiguration(
+  serviceWorkerGlobalScope: ServiceWorkerGlobalScope,
+  discoveryUrl: string
+) {
   const cache = await serviceWorkerGlobalScope.caches.open("openIdDiscovery");
-  
+
   let url = discoveryUrl;
   if (url.indexOf(".well-known/openid-configuration") < 0) {
     if (url.slice(-1) !== "/") {
@@ -17,12 +20,14 @@ export async function getOpenIdConfiguration(serviceWorkerGlobalScope: ServiceWo
       return data;
     }
   }
-  const response = await serviceWorkerGlobalScope.fetch(url).catch( e => e);
+  const response = await serviceWorkerGlobalScope.fetch(url).catch((e) => e);
   if (response.ok) {
     const data = await response.json();
     data.timestamp = new Date().getTime();
     await cache.put(url, new Response(JSON.stringify(data)));
     return data;
-  } 
-  return Promise.reject(new Error(`Failed to fetch OpenID discovery document from ${url}`));
+  }
+  return Promise.reject(
+    new Error(`Failed to fetch OpenID discovery document from ${url}`)
+  );
 }

@@ -1,6 +1,4 @@
-import { debug } from "console";
-
-const DebugConsole = ((debug: boolean, prefix: string) => {
+const DebugConsole = (debug: boolean, prefix: string) => {
   const logWithDebugCheck =
     (method: (...args: any[]) => void) =>
     (...args: any[]) => {
@@ -17,6 +15,7 @@ const DebugConsole = ((debug: boolean, prefix: string) => {
       }
     },
   };
-});
+};
 
-export const setupDebugConsole = (debug: boolean, prefix: string) => DebugConsole(debug, prefix);
+export const setupDebugConsole = (debug: boolean, prefix: string) =>
+  DebugConsole(debug, prefix);

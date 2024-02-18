@@ -1,4 +1,7 @@
-export function fetchWithToken(request: Request, token?: string): Promise<Response> {
+export function fetchWithToken(
+  request: Request,
+  token?: string
+): Promise<Response> {
   const headers = new Headers();
   if (token) {
     headers.append("Authorization", `Bearer ${token}`);
@@ -8,7 +11,7 @@ export function fetchWithToken(request: Request, token?: string): Promise<Respon
       headers.append(key, request.headers.get(key));
     }
   }
-  
+
   const {
     body,
     cache,

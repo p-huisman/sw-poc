@@ -52,8 +52,11 @@ class OAuthSessionManager {
       if (!session.oAuthClients) {
         session.oAuthClients = [];
       }
-      if (session.oAuthClients[oAuthClientConfig.id]) {
-        session.oAuthClients[oAuthClientConfig.id].config = oAuthClientConfig;
+      const existingClientIndex = session.oAuthClients.findIndex(
+        (c) => c.id === oAuthClientConfig.id
+      );
+      if (existingClientIndex > -1) {
+        session.oAuthClients[existingClientIndex].config = oAuthClientConfig;
       } else {
         session.oAuthClients.push({
           id: oAuthClientConfig.id,
