@@ -4,6 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Document</title>
+    <style>
+      pre {
+        border-bottom: 1px solid gray;
+        padding-bottom: 1em;
+      }
+    </style>
   </head>
 
   <body>
@@ -38,6 +44,7 @@
 
     <button id="Logoff2Button">Logoff 2</button>
 
+    <div id="output"></div>
     <script>
       document.getElementById("Fetch1Button").addEventListener("click", () => {
         doFetch("https://demo.duendesoftware.com/connect/userinfo");
@@ -58,13 +65,19 @@
       function doFetch(url) {
         fetch(url).then((response) => {
           if (!response.ok) {
-            console.error("Network response was not ok");
+            prependOutput("Network response was not ok");
           } else {
             response.json().then((data) => {
-              console.info(data);
+              prependOutput(url, JSON.stringify(data, null, 2));
             });
           }
         });
+      }
+
+      function prependOutput(title, text) {
+        const pre = document.createElement("pre");
+        pre.innerHTML = `<h3>${title}</h3>`  + "\r\n" + text;
+        document.getElementById("output").prepend(pre);
       }
 
       // dom conent loaded
