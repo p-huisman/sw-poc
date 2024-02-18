@@ -5,20 +5,21 @@ import {
 } from "../helpers/crypto";
 import { setupDebugConsole } from "./debug-console";
 import { fetchWithToken } from "./fetch";
-import { createOAuthDatabase, SessionRecord } from "./session-database";
+import { getOpenIdConfiguration } from "./openid-configurations";
+import { AuthClient, getSessionManager, Session } from "./session-manager";
 
 export type {};
 
 interface AuthorizationCallbackParam {
-  session: SessionRecord;
+  sessionId: string;
+  oAuthClient: AuthClient;
   verifier: string;
   tokenEndpoint: string;
   state: any;
 }
 
-
 declare var self: ServiceWorkerGlobalScope;
-const oauthDatabase = createOAuthDatabase(self);
+const sessionManager = getSessionManager(self);
 const tokens = new Map<string, any>();
 let debugConsole = setupDebugConsole(false, "[SW]");
 let authorizationCallbacksInProgress: AuthorizationCallbackParam[] = [];
@@ -32,25 +33,26 @@ self.addEventListener("activate", (event: ExtendableEvent) => {
 });
 
 self.addEventListener("message", async (event: ExtendableMessageEvent) => {
-  const eventClient = event.source as Client;
-
+  const eventClient = event.source as WindowClient;
+  
   switch (event.data.type) {
     case "debug-console":
       debugConsole = setupDebugConsole(event.data.debug, "[SW]");
       break;
     
     case "register-auth-client":
-      // remove old sessions
-      await oauthDatabase.removeExpiredSessions();
-
+      
       // add or update session
       const { authClient, session } = event.data;
-      await oauthDatabase.addSession(
+
+      const window = eventClient.id
+      await sessionManager.addAuthClientSession(
         session,
-        eventClient.id,
-        authClient.id,
+        window,
         authClient
       );
+
+      await sessionManager.removeExpiredSessions();
 
       event.ports[0].postMessage({
         type: "register-auth-client",
@@ -62,17 +64,16 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
       const tokenData = tokens.get(
         `${event.data.session}_${event.data.clientId}`
       );
-      const currentSession = await oauthDatabase.getSession(
-        event.data.session,
-        event.data.clientId
-      );
+      const currentSession = await sessionManager.getSession(event.data.session);
+      const currentAuthClient = currentSession.oAuthClients.find(client => client.id === event.data.clientId);
+
       if (currentSession && tokenData) {
-        const discoverOpenId = await oauthDatabase.getOpenIdConfiguration(
-          currentSession.data.discoveryUrl
+        const discoverOpenId = await getOpenIdConfiguration(self,
+          currentAuthClient.config.discoveryUrl
         );
         await revokeTokens(
           discoverOpenId.revocation_endpoint,
-          currentSession.data.clientId,
+          currentAuthClient.config.clientId,
           tokenData
         );
         const swClient = await self.clients.get(eventClient.id); 
@@ -84,7 +85,7 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
             id_token_hint: tokenData.id_token,
             post_logout_redirect_uri:
             currentUrl.origin +
-              currentSession.data.callbackPath + "#post_end_session_redirect_uri=" + encodeURIComponent(event.data.url),
+            currentAuthClient.config.callbackPath + "#post_end_session_redirect_uri=" + encodeURIComponent(event.data.url),
           },
           encodeURIComponent,
           "&",
@@ -111,7 +112,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
   });
 
   event.respondWith(responsePromise);
-
+  
   const windowClient = await getWindowClient(event.clientId);
 
   if (authorizationCallbacksInProgress.length > 0 && windowClient?.url) {
@@ -119,15 +120,18 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
     authorizationCallbacksInProgress = [];
   }
   
-  const session = await oauthDatabase.getSessionForRequest(
+  const session = windowClient?.id ? await sessionManager.getSessionForWindow(windowClient.id) : null;
+  
+  const oAuthClientForRequest = await sessionManager.getOAuthClientForRequest(
     event.request.url,
-    event.clientId
+    session
   );
 
-  if (session) {
-    let tokenData = tokens.get(`${session.session}_${session.data.id}`);
-    const discoverOpenId = await oauthDatabase.getOpenIdConfiguration(
-      session.data.discoveryUrl
+  
+  if (oAuthClientForRequest) {
+    let tokenData = tokens.get(`${session.sessionId}_${oAuthClientForRequest.config.clientId}`);
+    const discoverOpenId = await getOpenIdConfiguration(self,
+      oAuthClientForRequest.config.discoveryUrl
     );
     if (tokenData) {
       debugConsole.info("fetch with token", tokenData.access_token);
@@ -139,7 +143,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
             );
             refreshtTokens(
               discoverOpenId.token_endpoint,
-              session.data.clientId,
+              oAuthClientForRequest.config.clientId,
               tokenData.refresh_token
             )
               .then((response) => {
@@ -147,7 +151,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
                   debugConsole.info("token refreshed");
                   response.json().then((newTokenData) => {
                     tokens.set(
-                      `${session.session}_${session.data.id}`,
+                      `${session.sessionId}_${oAuthClientForRequest.config.clientId}`,
                       newTokenData
                     );
                     debugConsole.table(tokens);
@@ -161,7 +165,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
                           debugConsole.info(
                             "401 on fetch with new token, send authorization required message"
                           );
-                          postAthorizationRequiredMessage(event, session);
+                          postAthorizationRequiredMessage(event, oAuthClientForRequest, session);
                         } else {
                           debugConsole.info("fetch with new token success");
                           responseResolve(fetchResponse);
@@ -178,7 +182,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
                     response.status,
                     response
                   );
-                  postAthorizationRequiredMessage(event, session);
+                  postAthorizationRequiredMessage(event, oAuthClientForRequest, session);
                 }
               })
               .catch((e) => {
@@ -198,7 +202,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
       debugConsole.error(
         "no token but is required for request, send authorization required message"
       );
-      postAthorizationRequiredMessage(event, session);
+      postAthorizationRequiredMessage(event, oAuthClientForRequest, session);
     }
   } else {
     fetch(event.request)
@@ -209,11 +213,13 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
 
 async function postAthorizationRequiredMessage(
   event: FetchEvent,
-  session: SessionRecord
+  oAuthClient: AuthClient,
+  session: Session
 ) {
   const swClient = await self.clients.get(event.clientId);
-  const discoverOpenId = await oauthDatabase.getOpenIdConfiguration(
-    session.data.discoveryUrl
+  console.log("discoveryUrl " + oAuthClient.config.discoveryUrl);
+  const discoverOpenId = await getOpenIdConfiguration(self,
+    oAuthClient.config.discoveryUrl
   );
 
   const verifier = generateRandomString();
@@ -227,28 +233,29 @@ async function postAthorizationRequiredMessage(
     "?" +
     encodedStringFromObject(
       {
-        client_id: session.data.clientId,
+        client_id: oAuthClient.config.clientId,
         code_challenge: codeChallenge,
         code_challenge_method: "S256",
         response_mode: "fragment",
         response_type: "code",
-        redirect_uri: self.location.origin + session.data.callbackPath,
-        scope: session.data.scope,
+        redirect_uri: self.location.origin + oAuthClient.config.callbackPath,
+        scope: oAuthClient.config.scope,
         state: JSON.stringify(state),
       },
       encodeURIComponent,
       "&"
     );
   authorizationCallbacksInProgress.push({
+    sessionId: session.sessionId,
     verifier,
     tokenEndpoint: discoverOpenId.token_endpoint,
-    session,
+    oAuthClient,
     state,
   });
 
   swClient.postMessage({
     type: "authorize",
-    client: session.data.id,
+    client: oAuthClient.config.id,
     url,
   });
 }
@@ -265,11 +272,11 @@ async function handleAuthorizationCallback(
   const hash = windowClient.url.split("#", 2)[1];
   const authResponse = getAuthorizationCallbackResponseData(hash);
   const body = encodedStringFromObject({
-    client_id: callBack.session.data.clientId,
+    client_id: callBack.oAuthClient.config.clientId,
     code: authResponse.code,
     code_verifier: callBack.verifier,
     grant_type: "authorization_code",
-    redirect_uri: self.location.origin + callBack.session.data.callbackPath,
+    redirect_uri: self.location.origin + callBack.oAuthClient.config.callbackPath,
   });
 
   const tokenResponse = await fetch(callBack.tokenEndpoint, {
@@ -285,13 +292,13 @@ async function handleAuthorizationCallback(
     throw tokenResponse;
   } else {
     tokens.set(
-      `${callBack.session.session}_${callBack.session.data.id}`,
+      `${callBack.sessionId}_${callBack.oAuthClient.config.clientId}`,
       tokenResponse
     );
     windowClient.postMessage({
       type: "authorization-complete",
       tokens: tokenResponse,
-      client: callBack.session.data.id,
+      client: callBack.oAuthClient.config.id,
       location: callBack.state.location,
     });
   }
