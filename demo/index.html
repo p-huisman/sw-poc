@@ -30,17 +30,29 @@
       ></p-auth-code-flow>
     </p-oauth>
 
-    <button id="FetchButton">Fetch</button>
+    <button id="Fetch1Button">Fetch 1</button>
+
+    <button id="Logoff1Button">Logoff 1</button>
+
+    <button id="Fetch2Button">Fetch 2</button>
 
     <button id="Logoff2Button">Logoff 2</button>
 
     <script>
-      document.getElementById("FetchButton").addEventListener("click", () => {
+      document.getElementById("Fetch1Button").addEventListener("click", () => {
         doFetch("https://demo.duendesoftware.com/connect/userinfo");
       });
 
+      document.getElementById("Fetch2Button").addEventListener("click", () => {
+        doFetch("https://services-kvta.team_7.o.pggm-intra.intern/MijnOmgeving_vnext/particulier/personalia");
+      });
+
+      document.getElementById("Logoff1Button").addEventListener("click", () => {
+        document.getElementById("DuendeDemo").logoff("/");
+      })
+
       document.getElementById("Logoff2Button").addEventListener("click", () => {
-        document.getElementById("particulier").logoff("/");
+        document.getElementById("PfzwDemo").logoff("/");
       })
 
       function doFetch(url) {
