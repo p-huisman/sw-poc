@@ -4,13 +4,14 @@
   "description": "OAuth2 client web component",
   "main": "dist/p-oauth.js",
   "scripts": {
+    "start": "npm run build && npm run serve",
     "develop:js": "esbuild src/components/p-oauth.ts --bundle --watch --sourcemap --outfile=dist/p-oauth.js",
     "develop:sw": "esbuild src/service-worker/service-worker.ts --bundle --watch --sourcemap --outfile=dist/p-oauth-sw.js",
     "develop": "concurrently \"npm:develop:js\" \"npm:develop:sw\" \"npm:serve\"",
     "build:js": "esbuild src/components/p-oauth.ts --bundle --minify --outfile=dist/p-oauth.js",
     "build": "concurrently \"npm:build:js\" \"npm:build:sw\"",
     "build:sw": "esbuild src/service-worker/service-worker.ts --bundle --minify --outfile=dist/p-oauth-sw.js",
-    "serve": "concurrently \"cross-env NODE_TLS_REJECT_UNAUTHORIZED='0' node scripts/remoteserver.js\" \"node scripts/server.js\"",
+    "serve": "node scripts/server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Peter Huisman",
