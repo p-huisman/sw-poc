@@ -217,7 +217,6 @@ async function postAthorizationRequiredMessage(
   session: Session
 ) {
   const swClient = await self.clients.get(event.clientId);
-  console.log("discoveryUrl " + oAuthClient.config.discoveryUrl);
   const discoverOpenId = await getOpenIdConfiguration(self,
     oAuthClient.config.discoveryUrl
   );

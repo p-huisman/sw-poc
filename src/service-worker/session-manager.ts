@@ -48,7 +48,6 @@ class OAuthSessionManager {
 
     if (session) {
       session.window = window;
-      console.log("has session");
       if (!session.oAuthClients) {
         session.oAuthClients = [];
       }
@@ -63,7 +62,6 @@ class OAuthSessionManager {
           config: oAuthClientConfig,
         });
       }
-      console.log(Array.from(this.sessions.values()));
       return;
     }
 
@@ -76,7 +74,6 @@ class OAuthSessionManager {
       window,
       oAuthClients: [authClients],
     });
-    console.log(Array.from(this.sessions.values()));
   }
 
   public async removeExpiredSessions() {
