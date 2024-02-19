@@ -32,16 +32,20 @@ self.addEventListener("activate", (event: ExtendableEvent) => {
   event.waitUntil(self.clients.claim());
 });
 
+let registerPromise: Promise<void> | null = null;
+
 self.addEventListener("message", async (event: ExtendableMessageEvent) => {
   const eventClient = event.source as WindowClient;
 
-  if (event.data.session) {
-    await getSessionManager(self).updateSessionWindow(
-      event.data.session,
-      eventClient.id
-    );
-    await sessionManager.removeExpiredSessions();
-  }
+  const updateSessions = async () => {
+    if (event.data.session) {
+      await getSessionManager(self).updateSessionWindow(
+        event.data.session,
+        eventClient.id
+      );
+      await sessionManager.removeExpiredSessions();
+    }
+  };
 
   switch (event.data.type) {
     case "debug-console":
@@ -49,6 +53,14 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
       break;
 
     case "register-auth-client":
+      if (registerPromise) {
+        await registerPromise;
+      }
+
+      let resolver: () => void;
+      registerPromise = new Promise((resolve) => (resolver = resolve));
+      await updateSessions();
+
       const { authClient, session } = event.data;
       const window = eventClient.id;
       await sessionManager.addAuthClientSession(session, window, authClient);
@@ -56,10 +68,12 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
         type: "register-auth-client",
         success: true,
       });
+      resolver();
       break;
 
     case "logoff":
       handleLogoff(event);
+      await updateSessions();
       break;
   }
 });
@@ -125,10 +139,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
             refreshTokenResponse instanceof Error ||
             !refreshTokenResponse.ok
           ) {
-            debugConsole.error(
-              "fail to refresh tokens",
-              refreshTokenResponse
-            );
+            debugConsole.error("fail to refresh tokens", refreshTokenResponse);
             postAthorizationRequiredMessage(
               event,
               oAuthClientForRequest,
@@ -146,7 +157,10 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
               "fetch with new token",
               newTokenData.access_token
             );
-            response = await fetchWithToken(event.request, newTokenData.access_token).catch(e => e);
+            response = await fetchWithToken(
+              event.request,
+              newTokenData.access_token
+            ).catch((e) => e);
             if (response instanceof Error) {
               debugConsole.error("fetch with token error", response);
               responseReject(response);
@@ -166,8 +180,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
               }
             }
           }
-        }
-        else {
+        } else {
           debugConsole.info("fetch with token success");
           responseResolve(response);
         }
@@ -194,7 +207,7 @@ async function postAthorizationRequiredMessage(
   oAuthClient: AuthClient,
   session: Session
 ) {
-  const swClient = await self.clients.get(event.clientId);
+  const serviceWorkerClient = await self.clients.get(event.clientId);
   const discoverOpenId = await getOpenIdConfiguration(
     self,
     oAuthClient.discoveryUrl
@@ -202,9 +215,9 @@ async function postAthorizationRequiredMessage(
 
   const verifier = generateRandomString();
   const codeChallenge = await pkceChallengeFromVerifier(verifier);
-  const currentUrl = new URL(swClient.url);
+  const currentUrl = new URL(serviceWorkerClient.url);
   const state = {
-    location: swClient.url.replace(currentUrl.origin, ""),
+    location: serviceWorkerClient.url.replace(currentUrl.origin, ""),
   };
   const url =
     discoverOpenId.authorization_endpoint +
@@ -231,7 +244,7 @@ async function postAthorizationRequiredMessage(
     state,
   });
 
-  swClient.postMessage({
+  serviceWorkerClient.postMessage({
     type: "authorize",
     client: oAuthClient.id,
     url,
@@ -318,7 +331,7 @@ function revokeTokens(tokenEndpoint: string, clientId: string, tokens: any) {
   [
     ["access_token", tokens.access_token],
     ["refresh_token", tokens.refresh_token],
-  ].forEach((token, index) => {
+  ].forEach((token) => {
     if (token) {
       revokePromises.push(
         revokeToken(tokenEndpoint, clientId, token[0], token[1])
@@ -368,8 +381,8 @@ async function handleLogoff(event: ExtendableMessageEvent) {
       currentAuthClient.clientId,
       tokenData
     );
-    const swClient = await self.clients.get(window);
-    const currentUrl = new URL(swClient.url);
+    const serviceWorkerClient = await self.clients.get(window);
+    const currentUrl = new URL(serviceWorkerClient.url);
 
     const params =
       "?" +
@@ -387,7 +400,7 @@ async function handleLogoff(event: ExtendableMessageEvent) {
       );
     await sessionManager.removeToken(event.data.session, currentAuthClient.id);
 
-    swClient.postMessage({
+    serviceWorkerClient.postMessage({
       type: "end-session",
       location: discoverOpenId.end_session_endpoint + params,
     });

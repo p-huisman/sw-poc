@@ -47,17 +47,20 @@ class OAuthSessionManager {
     const session = sessions.find((session) => session.sessionId === sessionId);
 
     if (session) {
+      session.window = window;
       if (!session.oAuthClients) {
         session.oAuthClients = [];
-        session.oAuthClients.push(oAuthClient);
       } else {
         const c = session.oAuthClients.findIndex(
-          (oAuthClient) => oAuthClient.id === oAuthClient.id
+          (o) => o.id === oAuthClient.id
         );
+
         if (c < 0) {
           session.oAuthClients.push(oAuthClient);
+          await set("sessions", sessions);
         } else {
           session.oAuthClients[c] = oAuthClient;
+          await set("sessions", sessions);
         }
       }
     } else {
@@ -66,8 +69,8 @@ class OAuthSessionManager {
         window,
         oAuthClients: [oAuthClient],
       });
+      await set("sessions", sessions);
     }
-    await set("sessions", sessions);
   }
 
   public async updateSessionWindow(sessionId: string, window: string) {
