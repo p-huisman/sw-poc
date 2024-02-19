@@ -31,14 +31,9 @@ export const getSessionManager = (swGlobalScope: ServiceWorkerGlobalScope) => {
 };
 
 class OAuthSessionManager {
-  constructor(private swGlobalScope: ServiceWorkerGlobalScope) {
-    this.ready = Promise.resolve(); // this.removeExpiredSessions();
-  }
-
-  public ready: Promise<void>;
+  constructor(private swGlobalScope: ServiceWorkerGlobalScope) {}
 
   public async getSession(sessionId: string): Promise<Session> {
-    await this.ready;
     const sessions = (await get<Session[]>("sessions")) || [];
     return sessions.find((session) => session.sessionId === sessionId);
   }
@@ -48,7 +43,6 @@ class OAuthSessionManager {
     window: string,
     oAuthClient: AuthClient
   ): Promise<void> {
-    await this.ready;
     const sessions = (await get<Session[]>("sessions")) || [];
     const session = sessions.find((session) => session.sessionId === sessionId);
 
@@ -77,11 +71,9 @@ class OAuthSessionManager {
   }
 
   public async updateSessionWindow(sessionId: string, window: string) {
-    await this.ready;
     const sessions = (await get<Session[]>("sessions")) || [];
     for (const session of sessions) {
       if (session.sessionId === sessionId) {
-        console.log("updating session window", window);
         session.window = window;
       }
     }
@@ -89,25 +81,22 @@ class OAuthSessionManager {
   }
 
   public async removeExpiredSessions() {
-    await this.ready;
     const sessions = (await get<Session[]>("sessions")) || [];
     const allWindows = (await this.swGlobalScope.clients.matchAll()).map(
       (client) => client.id
     );
-    const updatedSessions = sessions
-      .filter((session) => allWindows.indexOf(session.window) > -1)
-      .map((s) => s);
+    const updatedSessions = sessions.filter(
+      (session) => allWindows.indexOf(session.window) > -1
+    );
     await set("sessions", updatedSessions);
   }
 
   public async getSessionForWindow(window: string) {
-    await this.ready;
     const sessions = (await get<Session[]>("sessions")) || [];
     return sessions.find((session) => session.window === window);
   }
 
   public async getOAuthClientForRequest(url: string, session: Session) {
-    await this.ready;
     if (!session) {
       return null;
     }
@@ -124,21 +113,17 @@ class OAuthSessionManager {
   }
 
   public async getToken(sessionId: string, clientId: string) {
-    await this.ready;
     const tokendata = (await get<TokenData[]>("tokens")) || [];
-    
+
     return tokendata.find(
-      (token) =>
-        token.sessionId === sessionId && token.clientId === clientId
-    ).tokens;
+      (token) => token.sessionId === sessionId && token.clientId === clientId
+    )?.tokens;
   }
 
   public async setToken(sessionId: string, clientId: string, tokendata: any) {
-    await this.ready;
     const tokens = (await get<TokenData[]>("tokens")) || [];
     const token = tokens.find(
-      (token) =>
-        token.sessionId === sessionId && token.clientId === clientId
+      (token) => token.sessionId === sessionId && token.clientId === clientId
     );
     if (token) {
       token.tokens = tokendata;
@@ -149,14 +134,10 @@ class OAuthSessionManager {
   }
 
   public async removeToken(sessionId: string, clientId: string) {
-    await this.ready;
     const tokens = (await get<TokenData[]>("tokens")) || [];
     const updatedTokens = tokens.filter(
-      (token) =>
-        token.sessionId !== sessionId || token.clientId !== clientId
-    ).map((t) => t);
+      (token) => token.sessionId !== sessionId || token.clientId !== clientId
+    );
     await set("tokens", updatedTokens);
   }
-
-
 }

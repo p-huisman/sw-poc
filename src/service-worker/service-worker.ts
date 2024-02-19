@@ -20,7 +20,7 @@ interface AuthorizationCallbackParam {
 
 declare var self: ServiceWorkerGlobalScope;
 const sessionManager = getSessionManager(self);
-const tokens = new Map<string, any>();
+
 let debugConsole = setupDebugConsole(false, "[SW]");
 let authorizationCallbacksInProgress: AuthorizationCallbackParam[] = [];
 
@@ -37,8 +37,9 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
 
   if (event.data.session) {
     await getSessionManager(self).updateSessionWindow(
-      event.data.session, eventClient.id
-    )
+      event.data.session,
+      eventClient.id
+    );
     await sessionManager.removeExpiredSessions();
   }
 
@@ -48,12 +49,9 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
       break;
 
     case "register-auth-client":
-      // add or update session
       const { authClient, session } = event.data;
-
       const window = eventClient.id;
       await sessionManager.addAuthClientSession(session, window, authClient);
-
       event.ports[0].postMessage({
         type: "register-auth-client",
         success: true,
@@ -61,51 +59,7 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
       break;
 
     case "logoff":
-      const currentSession = await sessionManager.getSession(
-        event.data.session
-      );
-      const currentAuthClient = currentSession.oAuthClients.find(
-        (client) => client.id === event.data.clientId
-      );
-      const tokenData = tokens.get(
-        `${event.data.session}_${currentAuthClient.clientId}`
-      );
-      if (currentSession && tokenData) {
-        const discoverOpenId = await getOpenIdConfiguration(
-          self,
-          currentAuthClient.discoveryUrl
-        );
-        await revokeTokens(
-          discoverOpenId.revocation_endpoint,
-          currentAuthClient.clientId,
-          tokenData
-        );
-        const swClient = await self.clients.get(eventClient.id);
-        const currentUrl = new URL(swClient.url);
-
-        const params =
-          "?" +
-          encodedStringFromObject(
-            {
-              id_token_hint: tokenData.id_token,
-              post_logout_redirect_uri:
-                currentUrl.origin +
-                currentAuthClient.callbackPath +
-                "#post_end_session_redirect_uri=" +
-                encodeURIComponent(event.data.url),
-            },
-            encodeURIComponent,
-            "&"
-          );
-        tokens.delete(
-          `${event.data.session}_${currentAuthClient.clientId}`
-        );
-
-        swClient.postMessage({
-          type: "end-session",
-          location: discoverOpenId.end_session_endpoint + params,
-        });
-      }
+      handleLogoff(event);
       break;
   }
 });
@@ -141,8 +95,9 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
   );
 
   if (oAuthClientForRequest) {
-    let tokenData = tokens.get(
-      `${session.sessionId}_${oAuthClientForRequest.clientId}`
+    let tokenData = await sessionManager.getToken(
+      session.sessionId,
+      oAuthClientForRequest.id
     );
     const discoverOpenId = await getOpenIdConfiguration(
       self,
@@ -150,7 +105,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
     );
     if (tokenData) {
       debugConsole.info("fetch with token", tokenData.access_token);
-      
+
       fetchWithToken(event.request, tokenData.access_token)
         .then((fetchResponse) => {
           if (fetchResponse.status === 401) {
@@ -166,34 +121,37 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
                 if (response.ok) {
                   debugConsole.info("token refreshed");
                   response.json().then((newTokenData) => {
-                    tokens.set(
-                      `${session.sessionId}_${oAuthClientForRequest.clientId}`,
-                      newTokenData
-                    );
-                    debugConsole.table(tokens);
-                    debugConsole.info(
-                      "fetch with new token",
-                      newTokenData.access_token
-                    );
-                    fetchWithToken(event.request, newTokenData.access_token)
-                      .then((fetchResponse) => {
-                        if (fetchResponse.status === 401) {
-                          debugConsole.info(
-                            "401 on fetch with new token, send authorization required message"
-                          );
-                          postAthorizationRequiredMessage(
-                            event,
-                            oAuthClientForRequest,
-                            session
-                          )
-                        } else {
-                          debugConsole.info("fetch with new token success");
-                          responseResolve(fetchResponse);
-                        }
-                      })
-                      .catch((e) => {
-                        debugConsole.error("fetch with new token error", e);
-                        responseReject(e);
+                    sessionManager
+                      .setToken(
+                        session.sessionId,
+                        oAuthClientForRequest.id,
+                        newTokenData
+                      )
+                      .then(() => {
+                        debugConsole.info(
+                          "fetch with new token",
+                          newTokenData.access_token
+                        );
+                        fetchWithToken(event.request, newTokenData.access_token)
+                          .then((fetchResponse) => {
+                            if (fetchResponse.status === 401) {
+                              debugConsole.info(
+                                "401 on fetch with new token, send authorization required message"
+                              );
+                              postAthorizationRequiredMessage(
+                                event,
+                                oAuthClientForRequest,
+                                session
+                              );
+                            } else {
+                              debugConsole.info("fetch with new token success");
+                              responseResolve(fetchResponse);
+                            }
+                          })
+                          .catch((e) => {
+                            debugConsole.error("fetch with new token error", e);
+                            responseReject(e);
+                          });
                       });
                   });
                 } else {
@@ -226,7 +184,11 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
       debugConsole.error(
         "no token but is required for request, send authorization required message"
       );
-      await postAthorizationRequiredMessage(event, oAuthClientForRequest, session);
+      await postAthorizationRequiredMessage(
+        event,
+        oAuthClientForRequest,
+        session
+      );
     }
   } else {
     fetch(event.request)
@@ -286,7 +248,7 @@ async function postAthorizationRequiredMessage(
 
 async function getWindowClient(id: string): Promise<WindowClient> {
   const clients = await self.clients.matchAll();
-  return await clients.find((client) => client?.id === id) as WindowClient;
+  return (await clients.find((client) => client?.id === id)) as WindowClient;
 }
 
 async function handleAuthorizationCallback(
@@ -300,8 +262,7 @@ async function handleAuthorizationCallback(
     code: authResponse.code,
     code_verifier: callBack.verifier,
     grant_type: "authorization_code",
-    redirect_uri:
-      self.location.origin + callBack.oAuthClient.callbackPath,
+    redirect_uri: self.location.origin + callBack.oAuthClient.callbackPath,
   });
 
   const tokenResponse = await fetch(callBack.tokenEndpoint, {
@@ -316,16 +277,20 @@ async function handleAuthorizationCallback(
   if (tokenResponse instanceof Error) {
     throw tokenResponse;
   } else {
-    tokens.set(
-      `${callBack.sessionId}_${callBack.oAuthClient.clientId}`,
-      tokenResponse
-    );
-    windowClient.postMessage({
-      type: "authorization-complete",
-      tokens: tokenResponse,
-      client: callBack.oAuthClient.id,
-      location: callBack.state.location,
-    });
+    sessionManager
+      .setToken(
+        callBack.sessionId,
+        callBack.oAuthClient.id,
+        tokenResponse
+      )
+      .then(() => {
+        windowClient.postMessage({
+          type: "authorization-complete",
+          tokens: tokenResponse,
+          client: callBack.oAuthClient.id,
+          location: callBack.state.location,
+        });
+      });
   }
 }
 
@@ -393,4 +358,55 @@ function revokeToken(
     },
     body,
   });
+}
+
+async function handleLogoff(event: ExtendableMessageEvent) {
+  const window = (event.source as WindowClient).id;
+  const currentSession = await sessionManager.getSession(
+    event.data.session
+  );
+  const currentAuthClient = currentSession.oAuthClients.find(
+    (client) => client.id === event.data.clientId
+  );
+  const tokenData = await sessionManager.getToken(
+    event.data.session,
+    currentAuthClient.id
+  );
+  if (currentSession && tokenData) {
+    const discoverOpenId = await getOpenIdConfiguration(
+      self,
+      currentAuthClient.discoveryUrl
+    );
+    await revokeTokens(
+      discoverOpenId.revocation_endpoint,
+      currentAuthClient.clientId,
+      tokenData
+    );
+    const swClient = await self.clients.get(window);
+    const currentUrl = new URL(swClient.url);
+
+    const params =
+      "?" +
+      encodedStringFromObject(
+        {
+          id_token_hint: tokenData.id_token,
+          post_logout_redirect_uri:
+            currentUrl.origin +
+            currentAuthClient.callbackPath +
+            "#post_end_session_redirect_uri=" +
+            encodeURIComponent(event.data.url),
+        },
+        encodeURIComponent,
+        "&"
+      );
+    await sessionManager.removeToken(
+      event.data.session,
+      currentAuthClient.id
+    );
+
+    swClient.postMessage({
+      type: "end-session",
+      location: discoverOpenId.end_session_endpoint + params,
+    });
+  }
 }
