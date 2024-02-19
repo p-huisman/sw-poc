@@ -139,8 +139,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
             refreshTokenResponse instanceof Error ||
             !refreshTokenResponse.ok
           ) {
-            debugConsole.error("fail to refresh tokens", refreshTokenResponse);
-            postAthorizationRequiredMessage(
+            fetchFailedAuthorizationRequired(
               event,
               oAuthClientForRequest,
               session
@@ -166,10 +165,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
               responseReject(response);
             } else {
               if (response.status === 401) {
-                debugConsole.info(
-                  "401 on fetch with new token, send authorization required message"
-                );
-                postAthorizationRequiredMessage(
+                fetchFailedAuthorizationRequired(
                   event,
                   oAuthClientForRequest,
                   session
@@ -186,10 +182,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
         }
       }
     } else {
-      debugConsole.error(
-        "no token but is required for request, send authorization required message"
-      );
-      await postAthorizationRequiredMessage(
+      fetchFailedAuthorizationRequired(
         event,
         oAuthClientForRequest,
         session
@@ -202,7 +195,18 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
   }
 });
 
-async function postAthorizationRequiredMessage(
+async function fetchFailedAuthorizationRequired(event: FetchEvent, oAuthClient: AuthClient ,session: Session) {
+  debugConsole.error(
+    "no token but is required for request, send authorization required message"
+  );
+  await postAuthorizationRequiredMessage(
+    event,
+    oAuthClient,
+    session
+  );
+}
+
+async function postAuthorizationRequiredMessage(
   event: FetchEvent,
   oAuthClient: AuthClient,
   session: Session
