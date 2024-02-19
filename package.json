@@ -5,17 +5,17 @@
   "main": "dist/p-oauth.js",
   "scripts": {
     "start": "npm run build && npm run serve",
-    "develop:js": "esbuild src/components/p-oauth.ts --bundle --watch --sourcemap --outfile=dist/p-oauth.js",
-    "develop:sw": "esbuild src/service-worker/service-worker.ts --bundle --watch --sourcemap --outfile=dist/p-oauth-sw.js",
+    "develop:js": "esbuild src/components/p-oauth.ts --bundle --watch --sourcemap --target=es6 --outfile=dist/p-oauth.js",
+    "develop:sw": "esbuild src/service-worker/service-worker.ts --bundle --watch --sourcemap --target=es6  --outfile=dist/p-oauth-sw.js",
     "develop": "concurrently \"npm:develop:js\" \"npm:develop:sw\" \"npm:serve\"",
-    "build:js": "esbuild src/components/p-oauth.ts --bundle --minify --outfile=dist/p-oauth.js",
+    "build:js": "esbuild src/components/p-oauth.ts --bundle --minify --target=es6  --outfile=dist/p-oauth.js",
     "build": "concurrently \"npm:build:js\" \"npm:build:sw\"",
-    "build:sw": "esbuild src/service-worker/service-worker.ts --bundle --minify --outfile=dist/p-oauth-sw.js",
+    "build:sw": "esbuild src/service-worker/service-worker.ts --bundle --minify --target=es6 --outfile=dist/p-oauth-sw.js",
     "serve": "node scripts/server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Peter Huisman",
-  "license": "UNLICENSED",
+  "license": "UNLICENSED", 
   "devDependencies": {
     "body-parser": "^1.20.2",
     "concurrently": "^8.2.2",
