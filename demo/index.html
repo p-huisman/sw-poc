@@ -13,7 +13,7 @@
   </head>
 
   <body>
-    <p-oauth no_debug>
+    <p-oauth debug>
       <!-- offline_access is needed for refresh tokens-->
       <p-auth-code-flow
         id="DuendeDemo"
@@ -24,7 +24,7 @@
         url-pattern="(/api/data-sample-request|/demo.duendesoftware.com/connect/userinfo|demo.duendesoftware.com/api/)"
       >
       </p-auth-code-flow>
-      <p-auth-code-flow
+      <!-- <p-auth-code-flow
         id="PfzwDemo"
         discovery-url="https://app-pggm-pggm-onewelcome-deelnemers-pfzw-tstsvr-o.pggm-ase-team7-shared-ase-o.appserviceenvironment.net/"
         client-id="particulier"
@@ -33,16 +33,16 @@
         url-pattern="(https://services-kvta.team_7.o.pggm-intra.intern/|ttps://app-pggm-pggm-onewelcome-deelnemers-pfzw-tstsvr-o.pggm-ase-team7-shared-ase-o.appserviceenvironment.net/connect/userinfo)"
         storage="session"
         storage-key="p-auth-token"
-      ></p-auth-code-flow>
+      ></p-auth-code-flow> -->
     </p-oauth>
 
     <button id="Fetch1Button">Fetch 1</button>
 
     <button id="Logoff1Button">Logoff 1</button>
 
-    <button id="Fetch2Button">Fetch 2</button>
+    <!-- <button id="Fetch2Button">Fetch 2</button>
 
-    <button id="Logoff2Button">Logoff 2</button>
+    <button id="Logoff2Button">Logoff 2</button> -->
 
     <div id="output"></div>
     <script>
@@ -50,17 +50,17 @@
         doFetch("https://demo.duendesoftware.com/connect/userinfo");
       });
 
-      document.getElementById("Fetch2Button").addEventListener("click", () => {
-        doFetch("https://services-kvta.team_7.o.pggm-intra.intern/MijnOmgeving_vnext/particulier/personalia");
-      });
+      // document.getElementById("Fetch2Button").addEventListener("click", () => {
+      //   doFetch("https://services-kvta.team_7.o.pggm-intra.intern/MijnOmgeving_vnext/particulier/personalia");
+      // });
 
       document.getElementById("Logoff1Button").addEventListener("click", () => {
         document.getElementById("DuendeDemo").logoff("/");
       })
 
-      document.getElementById("Logoff2Button").addEventListener("click", () => {
-        document.getElementById("PfzwDemo").logoff("/");
-      })
+      // document.getElementById("Logoff2Button").addEventListener("click", () => {
+      //   document.getElementById("PfzwDemo").logoff("/");
+      // })
 
       function doFetch(url) {
         fetch(url).then((response) => {
@@ -81,11 +81,11 @@
       }
 
       // dom conent loaded
-      document.addEventListener("DOMContentLoaded", function () {
-        doFetch(
-          "https://services-kvta.team_7.o.pggm-intra.intern/MijnOmgeving_vnext/particulier/personalia"
-        );
-      });
+      // document.addEventListener("DOMContentLoaded", function () {
+      //   doFetch(
+      //     "https://services-kvta.team_7.o.pggm-intra.intern/MijnOmgeving_vnext/particulier/personalia"
+      //   );
+      // });
     </script>
 
     <script defer src="../dist/p-oauth.js"></script>

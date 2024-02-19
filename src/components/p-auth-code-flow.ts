@@ -17,7 +17,7 @@ export class AuthCodeFlowElement extends PAuthBaseElement {
             event.data.type === "authorization-complete" &&
             event.data.client === this.id
           ) {
-            sessionStorage.setItem(this.id, JSON.stringify(event.data));
+            // sessionStorage.setItem(this.id, JSON.stringify(event.data));
             document.location.replace(event.data.location);
           }
         }

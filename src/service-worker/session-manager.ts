@@ -1,4 +1,6 @@
-export interface AuthClientConfig extends Object {
+import { get, set } from "idb-keyval";
+
+export interface AuthClient {
   id: string;
   discoveryUrl: string;
   clientId: string;
@@ -7,16 +9,16 @@ export interface AuthClientConfig extends Object {
   urlPattern: string;
 }
 
-export interface AuthClient {
-  id: string;
-  config: AuthClientConfig;
-  tokens?: any;
-}
-
 export interface Session {
   sessionId: string;
   window: string;
   oAuthClients: AuthClient[];
+}
+
+export interface TokenData {
+  sessionId: string;
+  clientId: string;
+  tokens: any;
 }
 
 let sessionManager: OAuthSessionManager;
@@ -30,84 +32,131 @@ export const getSessionManager = (swGlobalScope: ServiceWorkerGlobalScope) => {
 
 class OAuthSessionManager {
   constructor(private swGlobalScope: ServiceWorkerGlobalScope) {
-    this.sessions = new Map<string, Session>();
+    this.ready = Promise.resolve(); // this.removeExpiredSessions();
   }
 
-  private sessions: Map<string, Session>;
+  public ready: Promise<void>;
 
   public async getSession(sessionId: string): Promise<Session> {
-    return this.sessions.get(sessionId);
+    await this.ready;
+    const sessions = (await get<Session[]>("sessions")) || [];
+    return sessions.find((session) => session.sessionId === sessionId);
   }
 
   public async addAuthClientSession(
     sessionId: string,
     window: string,
-    oAuthClientConfig: any
+    oAuthClient: AuthClient
   ): Promise<void> {
-    const session = await this.getSession(sessionId);
+    await this.ready;
+    const sessions = (await get<Session[]>("sessions")) || [];
+    const session = sessions.find((session) => session.sessionId === sessionId);
 
     if (session) {
-      session.window = window;
       if (!session.oAuthClients) {
         session.oAuthClients = [];
-      }
-      const existingClientIndex = session.oAuthClients.findIndex(
-        (c) => c.id === oAuthClientConfig.id
-      );
-      if (existingClientIndex > -1) {
-        session.oAuthClients[existingClientIndex].config = oAuthClientConfig;
+        session.oAuthClients.push(oAuthClient);
       } else {
-        session.oAuthClients.push({
-          id: oAuthClientConfig.id,
-          config: oAuthClientConfig,
-        });
+        const c = session.oAuthClients.findIndex(
+          (oAuthClient) => oAuthClient.id === oAuthClient.id
+        );
+        if (c < 0) {
+          session.oAuthClients.push(oAuthClient);
+        } else {
+          session.oAuthClients[c] = oAuthClient;
+        }
       }
-      return;
+    } else {
+      sessions.push({
+        sessionId,
+        window,
+        oAuthClients: [oAuthClient],
+      });
     }
+    await set("sessions", sessions);
+  }
 
-    const authClients = {
-      id: oAuthClientConfig.id,
-      config: oAuthClientConfig,
-    };
-    this.sessions.set(sessionId, {
-      sessionId,
-      window,
-      oAuthClients: [authClients],
-    });
+  public async updateSessionWindow(sessionId: string, window: string) {
+    await this.ready;
+    const sessions = (await get<Session[]>("sessions")) || [];
+    for (const session of sessions) {
+      if (session.sessionId === sessionId) {
+        console.log("updating session window", window);
+        session.window = window;
+      }
+    }
+    await set("sessions", sessions);
   }
 
   public async removeExpiredSessions() {
-    const allSessions = Array.from(this.sessions.values());
-    const swClients = await this.swGlobalScope.clients.matchAll();
-    const allWindows: string[] = swClients.map((client) => client.id);
-    allSessions.forEach((session) => {
-      if (allWindows.indexOf(session.window) < 0) {
-        this.sessions.delete(session.sessionId);
-      }
-    });
+    await this.ready;
+    const sessions = (await get<Session[]>("sessions")) || [];
+    const allWindows = (await this.swGlobalScope.clients.matchAll()).map(
+      (client) => client.id
+    );
+    const updatedSessions = sessions
+      .filter((session) => allWindows.indexOf(session.window) > -1)
+      .map((s) => s);
+    await set("sessions", updatedSessions);
   }
 
   public async getSessionForWindow(window: string) {
-    const allSessions = Array.from(this.sessions.values());
-    const sessionForWindow = await allSessions.find(
-      (session) => session.window === window
-    );
-    return sessionForWindow;
+    await this.ready;
+    const sessions = (await get<Session[]>("sessions")) || [];
+    return sessions.find((session) => session.window === window);
   }
 
   public async getOAuthClientForRequest(url: string, session: Session) {
-    if (!session) return null;
+    await this.ready;
+    if (!session) {
+      return null;
+    }
     const allPatterns = session.oAuthClients.map(
-      (oauthClient) => oauthClient.config.urlPattern
+      (oauthClient) => oauthClient.urlPattern
     );
     const matchingPattern = allPatterns?.find((oAuthPattern) =>
       new RegExp(oAuthPattern).test(url)
     );
     if (matchingPattern) {
-      return session.oAuthClients.find(
-        (s) => s.config.urlPattern === matchingPattern
-      );
+      return session.oAuthClients.find((s) => s.urlPattern === matchingPattern);
     }
     return null;
   }
+
+  public async getToken(sessionId: string, clientId: string) {
+    await this.ready;
+    const tokendata = (await get<TokenData[]>("tokens")) || [];
+    
+    return tokendata.find(
+      (token) =>
+        token.sessionId === sessionId && token.clientId === clientId
+    ).tokens;
+  }
+
+  public async setToken(sessionId: string, clientId: string, tokendata: any) {
+    await this.ready;
+    const tokens = (await get<TokenData[]>("tokens")) || [];
+    const token = tokens.find(
+      (token) =>
+        token.sessionId === sessionId && token.clientId === clientId
+    );
+    if (token) {
+      token.tokens = tokendata;
+    } else {
+      tokens.push({ sessionId, clientId, tokens: tokendata });
+    }
+    await set("tokens", tokens);
+  }
+
+  public async removeToken(sessionId: string, clientId: string) {
+    await this.ready;
+    const tokens = (await get<TokenData[]>("tokens")) || [];
+    const updatedTokens = tokens.filter(
+      (token) =>
+        token.sessionId !== sessionId || token.clientId !== clientId
+    ).map((t) => t);
+    await set("tokens", updatedTokens);
+  }
+
+
 }

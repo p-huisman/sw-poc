@@ -35,6 +35,13 @@ self.addEventListener("activate", (event: ExtendableEvent) => {
 self.addEventListener("message", async (event: ExtendableMessageEvent) => {
   const eventClient = event.source as WindowClient;
 
+  if (event.data.session) {
+    await getSessionManager(self).updateSessionWindow(
+      event.data.session, eventClient.id
+    )
+    await sessionManager.removeExpiredSessions();
+  }
+
   switch (event.data.type) {
     case "debug-console":
       debugConsole = setupDebugConsole(event.data.debug, "[SW]");
@@ -46,8 +53,6 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
 
       const window = eventClient.id;
       await sessionManager.addAuthClientSession(session, window, authClient);
-
-      await sessionManager.removeExpiredSessions();
 
       event.ports[0].postMessage({
         type: "register-auth-client",
@@ -63,16 +68,16 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
         (client) => client.id === event.data.clientId
       );
       const tokenData = tokens.get(
-        `${event.data.session}_${currentAuthClient.config.clientId}`
+        `${event.data.session}_${currentAuthClient.clientId}`
       );
       if (currentSession && tokenData) {
         const discoverOpenId = await getOpenIdConfiguration(
           self,
-          currentAuthClient.config.discoveryUrl
+          currentAuthClient.discoveryUrl
         );
         await revokeTokens(
           discoverOpenId.revocation_endpoint,
-          currentAuthClient.config.clientId,
+          currentAuthClient.clientId,
           tokenData
         );
         const swClient = await self.clients.get(eventClient.id);
@@ -85,7 +90,7 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
               id_token_hint: tokenData.id_token,
               post_logout_redirect_uri:
                 currentUrl.origin +
-                currentAuthClient.config.callbackPath +
+                currentAuthClient.callbackPath +
                 "#post_end_session_redirect_uri=" +
                 encodeURIComponent(event.data.url),
             },
@@ -93,7 +98,7 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
             "&"
           );
         tokens.delete(
-          `${event.data.session}_${currentAuthClient.config.clientId}`
+          `${event.data.session}_${currentAuthClient.clientId}`
         );
 
         swClient.postMessage({
@@ -137,14 +142,15 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
 
   if (oAuthClientForRequest) {
     let tokenData = tokens.get(
-      `${session.sessionId}_${oAuthClientForRequest.config.clientId}`
+      `${session.sessionId}_${oAuthClientForRequest.clientId}`
     );
     const discoverOpenId = await getOpenIdConfiguration(
       self,
-      oAuthClientForRequest.config.discoveryUrl
+      oAuthClientForRequest.discoveryUrl
     );
     if (tokenData) {
       debugConsole.info("fetch with token", tokenData.access_token);
+      
       fetchWithToken(event.request, tokenData.access_token)
         .then((fetchResponse) => {
           if (fetchResponse.status === 401) {
@@ -153,7 +159,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
             );
             refreshtTokens(
               discoverOpenId.token_endpoint,
-              oAuthClientForRequest.config.clientId,
+              oAuthClientForRequest.clientId,
               tokenData.refresh_token
             )
               .then((response) => {
@@ -161,7 +167,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
                   debugConsole.info("token refreshed");
                   response.json().then((newTokenData) => {
                     tokens.set(
-                      `${session.sessionId}_${oAuthClientForRequest.config.clientId}`,
+                      `${session.sessionId}_${oAuthClientForRequest.clientId}`,
                       newTokenData
                     );
                     debugConsole.table(tokens);
@@ -179,7 +185,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
                             event,
                             oAuthClientForRequest,
                             session
-                          );
+                          )
                         } else {
                           debugConsole.info("fetch with new token success");
                           responseResolve(fetchResponse);
@@ -220,7 +226,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
       debugConsole.error(
         "no token but is required for request, send authorization required message"
       );
-      postAthorizationRequiredMessage(event, oAuthClientForRequest, session);
+      await postAthorizationRequiredMessage(event, oAuthClientForRequest, session);
     }
   } else {
     fetch(event.request)
@@ -237,7 +243,7 @@ async function postAthorizationRequiredMessage(
   const swClient = await self.clients.get(event.clientId);
   const discoverOpenId = await getOpenIdConfiguration(
     self,
-    oAuthClient.config.discoveryUrl
+    oAuthClient.discoveryUrl
   );
 
   const verifier = generateRandomString();
@@ -251,13 +257,13 @@ async function postAthorizationRequiredMessage(
     "?" +
     encodedStringFromObject(
       {
-        client_id: oAuthClient.config.clientId,
+        client_id: oAuthClient.clientId,
         code_challenge: codeChallenge,
         code_challenge_method: "S256",
         response_mode: "fragment",
         response_type: "code",
-        redirect_uri: self.location.origin + oAuthClient.config.callbackPath,
-        scope: oAuthClient.config.scope,
+        redirect_uri: self.location.origin + oAuthClient.callbackPath,
+        scope: oAuthClient.scope,
         state: JSON.stringify(state),
       },
       encodeURIComponent,
@@ -273,14 +279,14 @@ async function postAthorizationRequiredMessage(
 
   swClient.postMessage({
     type: "authorize",
-    client: oAuthClient.config.id,
+    client: oAuthClient.id,
     url,
   });
 }
 
 async function getWindowClient(id: string): Promise<WindowClient> {
   const clients = await self.clients.matchAll();
-  return clients.find((client) => client.id === id) as WindowClient;
+  return await clients.find((client) => client?.id === id) as WindowClient;
 }
 
 async function handleAuthorizationCallback(
@@ -290,12 +296,12 @@ async function handleAuthorizationCallback(
   const hash = windowClient.url.split("#", 2)[1];
   const authResponse = getAuthorizationCallbackResponseData(hash);
   const body = encodedStringFromObject({
-    client_id: callBack.oAuthClient.config.clientId,
+    client_id: callBack.oAuthClient.clientId,
     code: authResponse.code,
     code_verifier: callBack.verifier,
     grant_type: "authorization_code",
     redirect_uri:
-      self.location.origin + callBack.oAuthClient.config.callbackPath,
+      self.location.origin + callBack.oAuthClient.callbackPath,
   });
 
   const tokenResponse = await fetch(callBack.tokenEndpoint, {
@@ -311,13 +317,13 @@ async function handleAuthorizationCallback(
     throw tokenResponse;
   } else {
     tokens.set(
-      `${callBack.sessionId}_${callBack.oAuthClient.config.clientId}`,
+      `${callBack.sessionId}_${callBack.oAuthClient.clientId}`,
       tokenResponse
     );
     windowClient.postMessage({
       type: "authorization-complete",
       tokens: tokenResponse,
-      client: callBack.oAuthClient.config.id,
+      client: callBack.oAuthClient.id,
       location: callBack.state.location,
     });
   }
