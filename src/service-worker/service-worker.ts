@@ -103,83 +103,75 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
       self,
       oAuthClientForRequest.discoveryUrl
     );
+    let response: Response;
     if (tokenData) {
       debugConsole.info("fetch with token", tokenData.access_token);
-
-      fetchWithToken(event.request, tokenData.access_token)
-        .then((fetchResponse) => {
-          if (fetchResponse.status === 401) {
-            debugConsole.info(
-              "401 on fetch with token, trying to refresh token"
+      response = await fetchWithToken(
+        event.request,
+        tokenData.access_token
+      ).catch((e) => e);
+      if (response instanceof Error) {
+        debugConsole.error("fetch with token error", response);
+        responseReject(response);
+      } else {
+        if (response.status === 401) {
+          debugConsole.info("401 on fetch with token, trying to refresh token");
+          const refreshTokenResponse = await refreshtTokens(
+            discoverOpenId.token_endpoint,
+            oAuthClientForRequest.clientId,
+            tokenData.refresh_token
+          ).catch((e) => e);
+          if (
+            refreshTokenResponse instanceof Error ||
+            !refreshTokenResponse.ok
+          ) {
+            debugConsole.error(
+              "fail to refresh tokens",
+              refreshTokenResponse
             );
-            refreshtTokens(
-              discoverOpenId.token_endpoint,
-              oAuthClientForRequest.clientId,
-              tokenData.refresh_token
-            )
-              .then((response) => {
-                if (response.ok) {
-                  debugConsole.info("token refreshed");
-                  response.json().then((newTokenData) => {
-                    sessionManager
-                      .setToken(
-                        session.sessionId,
-                        oAuthClientForRequest.id,
-                        newTokenData
-                      )
-                      .then(() => {
-                        debugConsole.info(
-                          "fetch with new token",
-                          newTokenData.access_token
-                        );
-                        fetchWithToken(event.request, newTokenData.access_token)
-                          .then((fetchResponse) => {
-                            if (fetchResponse.status === 401) {
-                              debugConsole.info(
-                                "401 on fetch with new token, send authorization required message"
-                              );
-                              postAthorizationRequiredMessage(
-                                event,
-                                oAuthClientForRequest,
-                                session
-                              );
-                            } else {
-                              debugConsole.info("fetch with new token success");
-                              responseResolve(fetchResponse);
-                            }
-                          })
-                          .catch((e) => {
-                            debugConsole.error("fetch with new token error", e);
-                            responseReject(e);
-                          });
-                      });
-                  });
-                } else {
-                  debugConsole.error(
-                    "refreshing token response not ok",
-                    response.status,
-                    response
-                  );
-                  postAthorizationRequiredMessage(
-                    event,
-                    oAuthClientForRequest,
-                    session
-                  );
-                }
-              })
-              .catch((e) => {
-                debugConsole.error("error refreshing token response not ok", e);
-                responseReject(e);
-              });
+            postAthorizationRequiredMessage(
+              event,
+              oAuthClientForRequest,
+              session
+            );
           } else {
-            debugConsole.info("fetch with token success");
-            responseResolve(fetchResponse);
+            debugConsole.info("token refreshed");
+            const newTokenData = await refreshTokenResponse.json();
+            await sessionManager.setToken(
+              session.sessionId,
+              oAuthClientForRequest.id,
+              newTokenData
+            );
+            debugConsole.info(
+              "fetch with new token",
+              newTokenData.access_token
+            );
+            response = await fetchWithToken(event.request, newTokenData.access_token).catch(e => e);
+            if (response instanceof Error) {
+              debugConsole.error("fetch with token error", response);
+              responseReject(response);
+            } else {
+              if (response.status === 401) {
+                debugConsole.info(
+                  "401 on fetch with new token, send authorization required message"
+                );
+                postAthorizationRequiredMessage(
+                  event,
+                  oAuthClientForRequest,
+                  session
+                );
+              } else {
+                debugConsole.info("fetch with new token success");
+                responseResolve(response);
+              }
+            }
           }
-        })
-        .catch((e) => {
-          debugConsole.error("fetch with token error", e);
-          responseResolve(e);
-        });
+        }
+        else {
+          debugConsole.info("fetch with token success");
+          responseResolve(response);
+        }
+      }
     } else {
       debugConsole.error(
         "no token but is required for request, send authorization required message"
@@ -278,11 +270,7 @@ async function handleAuthorizationCallback(
     throw tokenResponse;
   } else {
     sessionManager
-      .setToken(
-        callBack.sessionId,
-        callBack.oAuthClient.id,
-        tokenResponse
-      )
+      .setToken(callBack.sessionId, callBack.oAuthClient.id, tokenResponse)
       .then(() => {
         windowClient.postMessage({
           type: "authorization-complete",
@@ -362,9 +350,7 @@ function revokeToken(
 
 async function handleLogoff(event: ExtendableMessageEvent) {
   const window = (event.source as WindowClient).id;
-  const currentSession = await sessionManager.getSession(
-    event.data.session
-  );
+  const currentSession = await sessionManager.getSession(event.data.session);
   const currentAuthClient = currentSession.oAuthClients.find(
     (client) => client.id === event.data.clientId
   );
@@ -399,10 +385,7 @@ async function handleLogoff(event: ExtendableMessageEvent) {
         encodeURIComponent,
         "&"
       );
-    await sessionManager.removeToken(
-      event.data.session,
-      currentAuthClient.id
-    );
+    await sessionManager.removeToken(event.data.session, currentAuthClient.id);
 
     swClient.postMessage({
       type: "end-session",
