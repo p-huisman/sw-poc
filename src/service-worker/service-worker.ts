@@ -4,9 +4,15 @@ import {
   pkceChallengeFromVerifier,
 } from "../helpers/crypto";
 import { setupDebugConsole } from "./debug-console";
-import { fetchWithAuthorizationHeader } from "./fetch";
 import { getOpenIdConfiguration } from "./openid-configurations";
-import { AuthClient, getSessionManager, Session, SessionManager } from "./session-manager";
+import {
+  AuthClient,
+  getSessionManager,
+  Session,
+  SessionManager,
+} from "./session-manager";
+
+import codeFlowFetchInterceptor from "./fetch-interceptors/code-flow-interceptor";
 
 export type {};
 
@@ -21,7 +27,7 @@ interface AuthorizationCallbackParam {
 export interface AuthServiceWorker extends ServiceWorkerGlobalScope {
   sessionManager: SessionManager;
   authorizationCallbacksInProgress: AuthorizationCallbackParam[];
-  debugConsole: any
+  debugConsole: any;
 }
 
 declare var self: AuthServiceWorker;
@@ -68,7 +74,11 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
 
       const { authClient, session } = event.data;
       const window = eventClient.id;
-      await self.sessionManager.addAuthClientSession(session, window, authClient);
+      await self.sessionManager.addAuthClientSession(
+        session,
+        window,
+        authClient
+      );
       event.ports[0].postMessage({
         type: "register-auth-client",
         success: true,
@@ -97,101 +107,34 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
   const windowClient = await getWindowClient(event.clientId);
 
   if (self.authorizationCallbacksInProgress.length > 0 && windowClient?.url) {
-    handleAuthorizationCallback(
+    await handleAuthorizationCallback(
       windowClient,
       self.authorizationCallbacksInProgress[0]
     );
-   self.authorizationCallbacksInProgress = [];
+    self.authorizationCallbacksInProgress = [];
   }
 
   const session = windowClient?.id
     ? await self.sessionManager.getSessionForWindow(windowClient.id)
     : null;
 
-  const matchingAuthClientForRequestUrl = await self.sessionManager.getOAuthClientForRequest(
-    event.request.url,
-    session
-  );
+  const matchingAuthClientForRequestUrl =
+    await self.sessionManager.getOAuthClientForRequest(
+      event.request.url,
+      session
+    );
 
   if (matchingAuthClientForRequestUrl) {
-    let tokenData = await self.sessionManager.getToken(
-      session.sessionId,
-      matchingAuthClientForRequestUrl.id
-    );
-    const discoverOpenId = await getOpenIdConfiguration(
-      self,
-      matchingAuthClientForRequestUrl.discoveryUrl
-    );
-    let response: Response;
-    if (tokenData) {
-      debugConsole.info("fetch with token", tokenData.access_token);
-      response = await fetchWithAuthorizationHeader(
-        event.request,
-        `Bearer ${tokenData.access_token}`
-      ).catch((e) => e);
-      if (response instanceof Error) {
-        debugConsole.error("fetch with token error", response);
-        responseReject(response);
-      } else {
-        if (response.status === 401) {
-          debugConsole.info("401 on fetch with token, trying to refresh token");
-          const refreshTokenResponse = await refreshtTokens(
-            discoverOpenId.token_endpoint,
-            matchingAuthClientForRequestUrl.clientId,
-            tokenData.refresh_token
-          ).catch((e) => e);
-          if (
-            refreshTokenResponse instanceof Error ||
-            !refreshTokenResponse.ok
-          ) {
-            fetchFailedAuthorizationRequired(
-              event,
-              matchingAuthClientForRequestUrl,
-              session
-            );
-          } else {
-            debugConsole.info("token refreshed");
-            const newTokenData = await refreshTokenResponse.json();
-            await sessionManager.setToken(
-              session.sessionId,
-              matchingAuthClientForRequestUrl.id,
-              newTokenData
-            );
-            debugConsole.info(
-              "fetch with new token",
-              newTokenData.access_token
-            );
-            response = await fetchWithAuthorizationHeader(
-              event.request,
-              `Bearer ${newTokenData.access_token}`
-            ).catch((e) => e);
-            if (response instanceof Error) {
-              debugConsole.error("fetch with token error", response);
-              responseReject(response);
-            } else {
-              if (response.status === 401) {
-                fetchFailedAuthorizationRequired(
-                  event,
-                  matchingAuthClientForRequestUrl,
-                  session
-                );
-              } else {
-                debugConsole.info("fetch with new token success");
-                responseResolve(response);
-              }
-            }
-          }
-        } else {
-          debugConsole.info("fetch with token success");
-          responseResolve(response);
-        }
-      }
+    const response = await codeFlowFetchInterceptor({
+      event,
+      serviceWorker: self,
+      session,
+      authClient: matchingAuthClientForRequestUrl,
+    }).catch((e) => e);
+    if (response instanceof Error) {
+      responseReject(response);
     } else {
-      fetchFailedAuthorizationRequired(
-        event,
-        matchingAuthClientForRequestUrl,
-        session
-      );
+      responseResolve(response);
     }
   } else {
     fetch(event.request)
@@ -200,15 +143,15 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
   }
 });
 
-async function fetchFailedAuthorizationRequired(event: FetchEvent, oAuthClient: AuthClient ,session: Session) {
+async function fetchFailedAuthorizationRequired(
+  event: FetchEvent,
+  oAuthClient: AuthClient,
+  session: Session
+) {
   self.debugConsole.error(
     "no token but is required for request, send authorization required message"
   );
-  await postAuthorizationRequiredMessage(
-    event,
-    oAuthClient,
-    session
-  );
+  await postAuthorizationRequiredMessage(event, oAuthClient, session);
 }
 
 async function postAuthorizationRequiredMessage(
@@ -372,10 +315,13 @@ function revokeToken(
 
 async function handleLogoff(event: ExtendableMessageEvent) {
   const window = (event.source as WindowClient).id;
-  const currentSession = await self.sessionManager.getSession(event.data.session);
+  const currentSession = await self.sessionManager.getSession(
+    event.data.session
+  );
   const currentAuthClient = currentSession.oAuthClients.find(
     (client) => client.id === event.data.clientId
   );
+  
   const tokenData = await self.sessionManager.getToken(
     event.data.session,
     currentAuthClient.id
@@ -407,7 +353,10 @@ async function handleLogoff(event: ExtendableMessageEvent) {
         encodeURIComponent,
         "&"
       );
-    await self.sessionManager.removeToken(event.data.session, currentAuthClient.id);
+    await self.sessionManager.removeToken(
+      event.data.session,
+      currentAuthClient.id
+    );
 
     serviceWorkerClient.postMessage({
       type: "end-session",
