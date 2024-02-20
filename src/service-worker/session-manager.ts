@@ -21,16 +21,18 @@ export interface TokenData {
   tokens: any;
 }
 
-let sessionManager: OAuthSessionManager;
+let sessionManager: SessionManagerClass;
 
-export const getSessionManager = (swGlobalScope: ServiceWorkerGlobalScope) => {
+export  type SessionManager = SessionManagerClass;
+
+export const getSessionManager = (swGlobalScope: ServiceWorkerGlobalScope): SessionManager => {
   if (!sessionManager) {
-    sessionManager = new OAuthSessionManager(swGlobalScope);
+    sessionManager = new SessionManagerClass(swGlobalScope);
   }
   return sessionManager;
 };
 
-class OAuthSessionManager {
+class SessionManagerClass {
   constructor(private swGlobalScope: ServiceWorkerGlobalScope) {}
 
   public async getSession(sessionId: string): Promise<Session> {

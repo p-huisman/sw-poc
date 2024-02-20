@@ -4,25 +4,30 @@ import {
   pkceChallengeFromVerifier,
 } from "../helpers/crypto";
 import { setupDebugConsole } from "./debug-console";
-import { fetchWithToken } from "./fetch";
+import { fetchWithAuthorizationHeader } from "./fetch";
 import { getOpenIdConfiguration } from "./openid-configurations";
-import { AuthClient, getSessionManager, Session } from "./session-manager";
+import { AuthClient, getSessionManager, Session, SessionManager } from "./session-manager";
 
 export type {};
 
 interface AuthorizationCallbackParam {
   sessionId: string;
-  oAuthClient: AuthClient;
+  authClient: AuthClient;
   verifier: string;
   tokenEndpoint: string;
   state: any;
 }
 
-declare var self: ServiceWorkerGlobalScope;
-const sessionManager = getSessionManager(self);
+export interface AuthServiceWorker extends ServiceWorkerGlobalScope {
+  sessionManager: SessionManager;
+  authorizationCallbacksInProgress: AuthorizationCallbackParam[];
+  debugConsole: any
+}
 
-let debugConsole = setupDebugConsole(false, "[SW]");
-let authorizationCallbacksInProgress: AuthorizationCallbackParam[] = [];
+declare var self: AuthServiceWorker;
+self.sessionManager = getSessionManager(self);
+self.debugConsole = setupDebugConsole(false, "[SW]");
+self.authorizationCallbacksInProgress = [];
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -43,13 +48,13 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
         event.data.session,
         eventClient.id
       );
-      await sessionManager.removeExpiredSessions();
+      await self.sessionManager.removeExpiredSessions();
     }
   };
 
   switch (event.data.type) {
     case "debug-console":
-      debugConsole = setupDebugConsole(event.data.debug, "[SW]");
+      self.debugConsole = setupDebugConsole(event.data.debug, "[SW]");
       break;
 
     case "register-auth-client":
@@ -63,7 +68,7 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
 
       const { authClient, session } = event.data;
       const window = eventClient.id;
-      await sessionManager.addAuthClientSession(session, window, authClient);
+      await self.sessionManager.addAuthClientSession(session, window, authClient);
       event.ports[0].postMessage({
         type: "register-auth-client",
         success: true,
@@ -91,38 +96,38 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
 
   const windowClient = await getWindowClient(event.clientId);
 
-  if (authorizationCallbacksInProgress.length > 0 && windowClient?.url) {
+  if (self.authorizationCallbacksInProgress.length > 0 && windowClient?.url) {
     handleAuthorizationCallback(
       windowClient,
-      authorizationCallbacksInProgress[0]
+      self.authorizationCallbacksInProgress[0]
     );
-    authorizationCallbacksInProgress = [];
+   self.authorizationCallbacksInProgress = [];
   }
 
   const session = windowClient?.id
-    ? await sessionManager.getSessionForWindow(windowClient.id)
+    ? await self.sessionManager.getSessionForWindow(windowClient.id)
     : null;
 
-  const oAuthClientForRequest = await sessionManager.getOAuthClientForRequest(
+  const matchingAuthClientForRequestUrl = await self.sessionManager.getOAuthClientForRequest(
     event.request.url,
     session
   );
 
-  if (oAuthClientForRequest) {
-    let tokenData = await sessionManager.getToken(
+  if (matchingAuthClientForRequestUrl) {
+    let tokenData = await self.sessionManager.getToken(
       session.sessionId,
-      oAuthClientForRequest.id
+      matchingAuthClientForRequestUrl.id
     );
     const discoverOpenId = await getOpenIdConfiguration(
       self,
-      oAuthClientForRequest.discoveryUrl
+      matchingAuthClientForRequestUrl.discoveryUrl
     );
     let response: Response;
     if (tokenData) {
       debugConsole.info("fetch with token", tokenData.access_token);
-      response = await fetchWithToken(
+      response = await fetchWithAuthorizationHeader(
         event.request,
-        tokenData.access_token
+        `Bearer ${tokenData.access_token}`
       ).catch((e) => e);
       if (response instanceof Error) {
         debugConsole.error("fetch with token error", response);
@@ -132,7 +137,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
           debugConsole.info("401 on fetch with token, trying to refresh token");
           const refreshTokenResponse = await refreshtTokens(
             discoverOpenId.token_endpoint,
-            oAuthClientForRequest.clientId,
+            matchingAuthClientForRequestUrl.clientId,
             tokenData.refresh_token
           ).catch((e) => e);
           if (
@@ -141,7 +146,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
           ) {
             fetchFailedAuthorizationRequired(
               event,
-              oAuthClientForRequest,
+              matchingAuthClientForRequestUrl,
               session
             );
           } else {
@@ -149,16 +154,16 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
             const newTokenData = await refreshTokenResponse.json();
             await sessionManager.setToken(
               session.sessionId,
-              oAuthClientForRequest.id,
+              matchingAuthClientForRequestUrl.id,
               newTokenData
             );
             debugConsole.info(
               "fetch with new token",
               newTokenData.access_token
             );
-            response = await fetchWithToken(
+            response = await fetchWithAuthorizationHeader(
               event.request,
-              newTokenData.access_token
+              `Bearer ${newTokenData.access_token}`
             ).catch((e) => e);
             if (response instanceof Error) {
               debugConsole.error("fetch with token error", response);
@@ -167,7 +172,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
               if (response.status === 401) {
                 fetchFailedAuthorizationRequired(
                   event,
-                  oAuthClientForRequest,
+                  matchingAuthClientForRequestUrl,
                   session
                 );
               } else {
@@ -184,7 +189,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
     } else {
       fetchFailedAuthorizationRequired(
         event,
-        oAuthClientForRequest,
+        matchingAuthClientForRequestUrl,
         session
       );
     }
@@ -196,7 +201,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
 });
 
 async function fetchFailedAuthorizationRequired(event: FetchEvent, oAuthClient: AuthClient ,session: Session) {
-  debugConsole.error(
+  self.debugConsole.error(
     "no token but is required for request, send authorization required message"
   );
   await postAuthorizationRequiredMessage(
@@ -240,11 +245,11 @@ async function postAuthorizationRequiredMessage(
       encodeURIComponent,
       "&"
     );
-  authorizationCallbacksInProgress.push({
+  self.authorizationCallbacksInProgress.push({
     sessionId: session.sessionId,
     verifier,
     tokenEndpoint: discoverOpenId.token_endpoint,
-    oAuthClient,
+    authClient: oAuthClient,
     state,
   });
 
@@ -267,11 +272,11 @@ async function handleAuthorizationCallback(
   const hash = windowClient.url.split("#", 2)[1];
   const authResponse = getAuthorizationCallbackResponseData(hash);
   const body = encodedStringFromObject({
-    client_id: callBack.oAuthClient.clientId,
+    client_id: callBack.authClient.clientId,
     code: authResponse.code,
     code_verifier: callBack.verifier,
     grant_type: "authorization_code",
-    redirect_uri: self.location.origin + callBack.oAuthClient.callbackPath,
+    redirect_uri: self.location.origin + callBack.authClient.callbackPath,
   });
 
   const tokenResponse = await fetch(callBack.tokenEndpoint, {
@@ -286,13 +291,13 @@ async function handleAuthorizationCallback(
   if (tokenResponse instanceof Error) {
     throw tokenResponse;
   } else {
-    sessionManager
-      .setToken(callBack.sessionId, callBack.oAuthClient.id, tokenResponse)
+    self.sessionManager
+      .setToken(callBack.sessionId, callBack.authClient.id, tokenResponse)
       .then(() => {
         windowClient.postMessage({
           type: "authorization-complete",
           tokens: tokenResponse,
-          client: callBack.oAuthClient.id,
+          client: callBack.authClient.id,
           location: callBack.state.location,
         });
       });
@@ -367,11 +372,11 @@ function revokeToken(
 
 async function handleLogoff(event: ExtendableMessageEvent) {
   const window = (event.source as WindowClient).id;
-  const currentSession = await sessionManager.getSession(event.data.session);
+  const currentSession = await self.sessionManager.getSession(event.data.session);
   const currentAuthClient = currentSession.oAuthClients.find(
     (client) => client.id === event.data.clientId
   );
-  const tokenData = await sessionManager.getToken(
+  const tokenData = await self.sessionManager.getToken(
     event.data.session,
     currentAuthClient.id
   );
@@ -402,7 +407,7 @@ async function handleLogoff(event: ExtendableMessageEvent) {
         encodeURIComponent,
         "&"
       );
-    await sessionManager.removeToken(event.data.session, currentAuthClient.id);
+    await self.sessionManager.removeToken(event.data.session, currentAuthClient.id);
 
     serviceWorkerClient.postMessage({
       type: "end-session",

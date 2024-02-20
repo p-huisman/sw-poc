@@ -1,17 +1,16 @@
-export function fetchWithToken(
+export function fetchWithAuthorizationHeader(
   request: Request,
-  token?: string
+  authorizationHeader?: string,
 ): Promise<Response> {
   const headers = new Headers();
-  if (token) {
-    headers.append("Authorization", `Bearer ${token}`);
+  if (authorizationHeader) {
+    headers.append("Authorization", authorizationHeader);
   }
   for (var key of (request.headers as any).keys()) {
     if (key.toString().toLowerCase() !== "authorization") {
       headers.append(key, request.headers.get(key));
     }
   }
-
   const {
     body,
     cache,
