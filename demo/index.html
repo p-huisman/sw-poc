@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Document</title>
     <style>
+      .clients {
+        display: flex;
+        gap: 2em;
+        /* justify-content: space-between; */
+      }
       pre {
         border-bottom: 1px solid gray;
         padding-bottom: 1em;
@@ -13,7 +18,7 @@
   </head>
 
   <body>
-    <p-oauth debug>
+    <p-oauth no-debug>
       <!-- offline_access is needed for refresh tokens-->
       <p-auth-code-flow
         id="DuendeDemo"
@@ -36,16 +41,23 @@
       ></p-auth-code-flow>
     </p-oauth>
 
-    <button id="Fetch1Button">Fetch 1</button>
+    
+    <div class="clients">
+      <div>
+        <button id="Fetch1Button">Fetch DuendeDemo</button>
+        <button id="Logoff1Button">Logoff DuendeDemo</button>
+      </div>
+      <div>
+        <button id="Fetch2Button">Fetch PfzwDemo</button>
+        <button id="Logoff2Button">Logoff PfzwDemo</button>
+      </div>
+      <div>
+        <button id="LogoffAllButton">Logoff All</button>
+      </div>
+    </div>
+    <hr />
 
-    <button id="Logoff1Button">Logoff 1</button>
-
-    <button id="Fetch2Button">Fetch 2</button>
-
-    <button id="Logoff2Button">Logoff 2</button>
-
-    <button id="LogoffAllButton">Logoff All</button>
-
+    
     <div id="output"></div>
     <script>
       document.getElementById("Fetch1Button").addEventListener("click", () => {
