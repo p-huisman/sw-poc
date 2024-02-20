@@ -81,8 +81,8 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
       break;
 
     case "logoff":
-      handleLogoff(event);
       await updateSessions();
+      handleLogoff(event);
       break;
   }
 });
@@ -156,16 +156,32 @@ async function handleLogoff(event: ExtendableMessageEvent) {
   const currentSession = await self.sessionManager.getSession(
     event.data.session
   );
-  const currentAuthClient = currentSession.oAuthClients.find(
-    (client) => client.id === event.data.clientId
+  const currentAuthClient = currentSession?.oAuthClients.find(
+    (client) => client.id === event.data.client.id
   );
 
-  if (currentAuthClient && currentAuthClient.type === "p-auth-code-flow") {
+  if (currentAuthClient && currentAuthClient?.type === "p-auth-code-flow") {
+    console.log("logoff handler for client type", currentAuthClient);
+    
     await codeFlowLogoffHandler({
       serviceWorker: self,
       session: currentSession,
       authClient: currentAuthClient,
       event,
+    });
+  } else {
+    console.log("No logoff handler for client type", event.data.client);
+    const allClients = await self.clients.matchAll({ type: "window" });
+    const client = allClients.find((client) => client.focused === true);
+    event.data.client.callbackPath;
+    const location =
+      event.data.client.callbackPath + "?ts=" + new Date().getTime() +
+      "#post_end_session_redirect_uri=" +
+      encodeURIComponent(event.data.url.split("#", 1)[0]);
+
+    client.postMessage({
+      type: "end-session",
+      location,
     });
   }
 }

@@ -32,7 +32,8 @@ export class AuthCodeFlowElement extends PAuthBaseElement {
 
   logoff(url: string) {
     sessionStorage.removeItem(this.id + "_tokens");
-    this.oAuth.logoff(this.id, url);
+    console.log("code flow Logging off", this.id, url)
+    this.oAuth.logoff(url, this);
   }
 }
 customElements.define("p-auth-code-flow", AuthCodeFlowElement);

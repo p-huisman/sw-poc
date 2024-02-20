@@ -44,6 +44,8 @@
 
     <button id="Logoff2Button">Logoff 2</button>
 
+    <button id="LogoffAllButton">Logoff All</button>
+
     <div id="output"></div>
     <script>
       document.getElementById("Fetch1Button").addEventListener("click", () => {
@@ -60,6 +62,10 @@
 
       document.getElementById("Logoff2Button").addEventListener("click", () => {
         document.getElementById("PfzwDemo").logoff("/");
+      })
+
+      document.getElementById("LogoffAllButton").addEventListener("click", () => {
+        document.querySelector("p-oauth").logoff("/");
       })
 
       function doFetch(url) {

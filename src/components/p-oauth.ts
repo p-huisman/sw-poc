@@ -109,7 +109,20 @@ export class POauthElement extends HTMLElement {
   };
 
   connectedCallback(): void {
+    
     if (document.location.hash.indexOf("post_end_session_redirect_uri=") > 0) {
+
+      const hasLogoffAll = sessionStorage.getItem("p-oauth-logoff-all");
+      if (hasLogoffAll) {
+        const allClients = JSON.parse(hasLogoffAll);
+        if (allClients.length <= 1) {
+          const location = sessionStorage.getItem("p-oauth-logoff-all-url");
+          sessionStorage.removeItem("p-oauth-logoff-all");
+          sessionStorage.removeItem("p-oauth-logoff-all-url");
+          document.location.replace(location);
+        }
+      }
+      
       const hasData = document.location.href
         .split("#", 2)[1]
         .split("&")
@@ -119,18 +132,75 @@ export class POauthElement extends HTMLElement {
           return result;
         }, {});
       if (hasData.post_end_session_redirect_uri) {
+        console.log(
+          "hasData.post_end_session_redirect_uri",
+          hasData.post_end_session_redirect_uri
+        );
         document.location.replace(hasData.post_end_session_redirect_uri);
       }
     }
   }
 
-  logoff = async (clientId: string, url: string): Promise<void> => {
+  logoff = async (url: string, client?: HTMLElement): Promise<void> => {
+    console.log("logoff", url, client)
+    
+    if (!client) {
+      let allClients =
+        JSON.parse(sessionStorage.getItem("p-oauth-logoff-all")) || null;
+        console.log("sessions storage", allClients);
+      if (!allClients) {
+        
+        sessionStorage.setItem("p-oauth-logoff-all-url", url);
+        allClients = (
+          Array.from(this.childNodes).filter(
+            (node) => node instanceof HTMLElement && node.id
+          ) as HTMLElement[]
+        ).map((node) => node.id);
+        console.log("allClients from dom", allClients);
+      }
+
+      const firstClient = allClients.shift();
+      const firstElement = this.querySelector<HTMLElement>(`#${firstClient}`);
+      
+      sessionStorage.setItem(
+        "p-oauth-logoff-all",
+        JSON.stringify(allClients)
+      );
+      
+      if (firstClient) {
+        
+        const endSessionUrl =
+        firstElement.getAttribute("callback-path") + 
+              "#post_end_session_redirect_uri=" +
+              encodeURIComponent(document.location.href.split("#", 1)[0]  );
+
+        
+        console.log("logoff from storage", url, firstClient);
+        await this.#postLogoffMessage(endSessionUrl, firstElement);
+        return;
+      }
+    } 
+    else {
+      console.log("logoff", url, client);
+      await this.#postLogoffMessage(url, client);
+    }
+  };
+
+  #postLogoffMessage = async (url: string, authClient: HTMLElement): Promise<void> => {
+    const client =  Object.fromEntries(
+      Array.from(authClient.attributes).map((item) => [
+        kebabCaseToCamelCase(item.name),
+        item.value,
+      ])
+    );
+    client["type"] = authClient.tagName.toLowerCase();
+    console.log("postLogoffMessage", url, client);
     await this.#serviceWorkerRegistrationActive;
     this.serviceWorkerRegistration.active.postMessage({
-      type: "logoff",
       session: this.session,
-      clientId,
+      type: "logoff",
       url,
+      client,
     });
   };
 }
