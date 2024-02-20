@@ -1,18 +1,13 @@
-import {
-  encodedStringFromObject,
-  generateRandomString,
-  pkceChallengeFromVerifier,
-} from "../helpers/crypto";
+import { encodedStringFromObject } from "../helpers/crypto";
 import { setupDebugConsole } from "./debug-console";
-import { getOpenIdConfiguration } from "./openid-configurations";
 import {
   AuthClient,
   getSessionManager,
-  Session,
   SessionManager,
 } from "./session-manager";
 
 import codeFlowFetchInterceptor from "./fetch-interceptors/code-flow-interceptor";
+import codeFlowLogoff from "./logoff-handlers/code-flow-logoff";
 
 export type {};
 
@@ -28,6 +23,7 @@ export interface AuthServiceWorker extends ServiceWorkerGlobalScope {
   sessionManager: SessionManager;
   authorizationCallbacksInProgress: AuthorizationCallbackParam[];
   debugConsole: any;
+  registerPromise: Promise<void> | null;
 }
 
 declare var self: AuthServiceWorker;
@@ -43,7 +39,7 @@ self.addEventListener("activate", (event: ExtendableEvent) => {
   event.waitUntil(self.clients.claim());
 });
 
-let registerPromise: Promise<void> | null = null;
+self.registerPromise = null;
 
 self.addEventListener("message", async (event: ExtendableMessageEvent) => {
   const eventClient = event.source as WindowClient;
@@ -64,14 +60,13 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
       break;
 
     case "register-auth-client":
-      if (registerPromise) {
-        await registerPromise;
+      if (self.registerPromise) {
+        await self.registerPromise;
       }
 
       let resolver: () => void;
-      registerPromise = new Promise((resolve) => (resolver = resolve));
+      self.registerPromise = new Promise((resolve) => (resolver = resolve));
       await updateSessions();
-
       const { authClient, session } = event.data;
       const window = eventClient.id;
       await self.sessionManager.addAuthClientSession(
@@ -119,7 +114,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
     : null;
 
   const matchingAuthClientForRequestUrl =
-    await self.sessionManager.getOAuthClientForRequest(
+    await self.sessionManager.getAuthClientForRequest(
       event.request.url,
       session
     );
@@ -142,66 +137,6 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
       .catch((e) => responseReject(e));
   }
 });
-
-async function fetchFailedAuthorizationRequired(
-  event: FetchEvent,
-  oAuthClient: AuthClient,
-  session: Session
-) {
-  self.debugConsole.error(
-    "no token but is required for request, send authorization required message"
-  );
-  await postAuthorizationRequiredMessage(event, oAuthClient, session);
-}
-
-async function postAuthorizationRequiredMessage(
-  event: FetchEvent,
-  oAuthClient: AuthClient,
-  session: Session
-) {
-  const serviceWorkerClient = await self.clients.get(event.clientId);
-  const discoverOpenId = await getOpenIdConfiguration(
-    self,
-    oAuthClient.discoveryUrl
-  );
-
-  const verifier = generateRandomString();
-  const codeChallenge = await pkceChallengeFromVerifier(verifier);
-  const currentUrl = new URL(serviceWorkerClient.url);
-  const state = {
-    location: serviceWorkerClient.url.replace(currentUrl.origin, ""),
-  };
-  const url =
-    discoverOpenId.authorization_endpoint +
-    "?" +
-    encodedStringFromObject(
-      {
-        client_id: oAuthClient.clientId,
-        code_challenge: codeChallenge,
-        code_challenge_method: "S256",
-        response_mode: "fragment",
-        response_type: "code",
-        redirect_uri: self.location.origin + oAuthClient.callbackPath,
-        scope: oAuthClient.scope,
-        state: JSON.stringify(state),
-      },
-      encodeURIComponent,
-      "&"
-    );
-  self.authorizationCallbacksInProgress.push({
-    sessionId: session.sessionId,
-    verifier,
-    tokenEndpoint: discoverOpenId.token_endpoint,
-    authClient: oAuthClient,
-    state,
-  });
-
-  serviceWorkerClient.postMessage({
-    type: "authorize",
-    client: oAuthClient.id,
-    url,
-  });
-}
 
 async function getWindowClient(id: string): Promise<WindowClient> {
   const clients = await self.clients.matchAll();
@@ -247,26 +182,6 @@ async function handleAuthorizationCallback(
   }
 }
 
-async function refreshtTokens(
-  tokenEndpoint: string,
-  clientId: string,
-  refreshToken: string
-): Promise<Response> {
-  const body = encodedStringFromObject({
-    client_id: clientId,
-    grant_type: "refresh_token",
-    refresh_token: refreshToken,
-  });
-
-  return fetch(tokenEndpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-    },
-    body,
-  });
-}
-
 function getAuthorizationCallbackResponseData(queryString: string): any {
   if (queryString.indexOf("error=") > -1) {
     return new Error(queryString); // todo get error from query string
@@ -278,89 +193,17 @@ function getAuthorizationCallbackResponseData(queryString: string): any {
   }, {});
 }
 
-function revokeTokens(tokenEndpoint: string, clientId: string, tokens: any) {
-  const revokePromises: Promise<Response>[] = [];
-  [
-    ["access_token", tokens.access_token],
-    ["refresh_token", tokens.refresh_token],
-  ].forEach((token) => {
-    if (token) {
-      revokePromises.push(
-        revokeToken(tokenEndpoint, clientId, token[0], token[1])
-      );
-    }
-  });
-  return Promise.all(revokePromises);
-}
-
-function revokeToken(
-  tokenEndpoint: string,
-  clientId: string,
-  tokenType: string,
-  token: string
-) {
-  const body = encodedStringFromObject({
-    client_id: clientId,
-    token,
-    token_type_hint: tokenType,
-  });
-  return fetch(tokenEndpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-    },
-    body,
-  });
-}
-
 async function handleLogoff(event: ExtendableMessageEvent) {
-  const window = (event.source as WindowClient).id;
   const currentSession = await self.sessionManager.getSession(
     event.data.session
   );
   const currentAuthClient = currentSession.oAuthClients.find(
     (client) => client.id === event.data.clientId
   );
-  
-  const tokenData = await self.sessionManager.getToken(
-    event.data.session,
-    currentAuthClient.id
-  );
-  if (currentSession && tokenData) {
-    const discoverOpenId = await getOpenIdConfiguration(
-      self,
-      currentAuthClient.discoveryUrl
-    );
-    await revokeTokens(
-      discoverOpenId.revocation_endpoint,
-      currentAuthClient.clientId,
-      tokenData
-    );
-    const serviceWorkerClient = await self.clients.get(window);
-    const currentUrl = new URL(serviceWorkerClient.url);
-
-    const params =
-      "?" +
-      encodedStringFromObject(
-        {
-          id_token_hint: tokenData.id_token,
-          post_logout_redirect_uri:
-            currentUrl.origin +
-            currentAuthClient.callbackPath +
-            "#post_end_session_redirect_uri=" +
-            encodeURIComponent(event.data.url),
-        },
-        encodeURIComponent,
-        "&"
-      );
-    await self.sessionManager.removeToken(
-      event.data.session,
-      currentAuthClient.id
-    );
-
-    serviceWorkerClient.postMessage({
-      type: "end-session",
-      location: discoverOpenId.end_session_endpoint + params,
-    });
-  }
+  await codeFlowLogoff({
+    serviceWorker: self,
+    session: currentSession,
+    authClient: currentAuthClient,
+    event,
+  });
 }

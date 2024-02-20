@@ -101,7 +101,7 @@ class SessionManagerClass {
     return sessions.find((session) => session.window === window);
   }
 
-  public async getOAuthClientForRequest(url: string, session: Session) {
+  public async getAuthClientForRequest(url: string, session: Session) {
     if (!session) {
       return null;
     }
