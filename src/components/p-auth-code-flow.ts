@@ -22,7 +22,6 @@ export class AuthCodeFlowElement extends PAuthBaseElement {
           } else {
             if (event.data.type === "token-refresh" && event.data.client === this.id) {
               sessionStorage.setItem(this.id + "_tokens", JSON.stringify(event.data.tokens));
-              console.log("Token refreshed");
             }
           }
         }
@@ -30,9 +29,12 @@ export class AuthCodeFlowElement extends PAuthBaseElement {
     });
   }
 
-  logoff(url: string) {
+  logoff(url?: string) {
+    console.log("logoff");
     sessionStorage.removeItem(this.id + "_tokens");
-    console.log("code flow Logging off", this.id, url)
+    if(!url) {
+      return;
+    }
     this.oAuth.logoff(url, this);
   }
 }

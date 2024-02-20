@@ -161,8 +161,6 @@ async function handleLogoff(event: ExtendableMessageEvent) {
   );
 
   if (currentAuthClient && currentAuthClient?.type === "p-auth-code-flow") {
-    console.log("logoff handler for client type", currentAuthClient);
-    
     await codeFlowLogoffHandler({
       serviceWorker: self,
       session: currentSession,
@@ -170,12 +168,11 @@ async function handleLogoff(event: ExtendableMessageEvent) {
       event,
     });
   } else {
-    console.log("No logoff handler for client type", event.data.client);
     const allClients = await self.clients.matchAll({ type: "window" });
     const client = allClients.find((client) => client.focused === true);
     event.data.client.callbackPath;
     const location =
-      event.data.client.callbackPath + "?ts=" + new Date().getTime() +
+      event.data.client.callbackPath + "?c=" + event.data.client.id +
       "#post_end_session_redirect_uri=" +
       encodeURIComponent(event.data.url.split("#", 1)[0]);
 

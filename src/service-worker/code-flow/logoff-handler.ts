@@ -47,7 +47,7 @@ export default async (config: LogoffConfig): Promise<void> => {
           id_token_hint: tokenData.id_token,
           post_logout_redirect_uri:
             currentUrl.origin +
-            config.authClient.callbackPath + "?ts=" + new Date().getTime() +
+            config.authClient.callbackPath + "?c=" + config.authClient.id +
             "#post_end_session_redirect_uri=" +
             encodeURIComponent(config.event.data.url),
         },
@@ -58,10 +58,18 @@ export default async (config: LogoffConfig): Promise<void> => {
       config.event.data.session,
       config.authClient.id
     );
-    console.log("end-session", discoverOpenId.end_session_endpoint + params);
     serviceWorkerClient.postMessage({
       type: "end-session",
       location: discoverOpenId.end_session_endpoint + params,
+    });
+  } else {
+    const allClients = await config.serviceWorker.clients.matchAll({ type: "window" });
+    const client = allClients.find((client) => client.focused === true);
+    const location = config.authClient.callbackPath + "?c=" + config.authClient.id +
+    "#post_end_session_redirect_uri=" + config.event.data.url;
+    client.postMessage({
+      type: "end-session",
+      location,
     });
   }
 };
