@@ -133,6 +133,9 @@ async function tryFetch(
       config.authClient.id,
       newTokenData
     );
+
+    sendTokenRefreshMessage(config.serviceWorker, config.authClient, newTokenData);
+
     currentToken = newTokenData.access_token;
   } else {
     config.serviceWorker.debugConsole.info("try to fetch with token", token);
@@ -216,16 +219,35 @@ async function postAuthorizationRequiredMessage(
       "&"
     );
   serviceWorker.authorizationCallbacksInProgress.push({
-    sessionId: session.sessionId,
-    verifier,
-    tokenEndpoint: discoverOpenId.token_endpoint,
     authClient: oAuthClient,
-    state,
+    data: {
+      verifier,
+      tokenEndpoint: discoverOpenId.token_endpoint,
+      state
+    },
+    sessionId: session.sessionId,
   });
 
   serviceWorkerClient.postMessage({
     type: "authorize",
     client: oAuthClient.id,
     url,
+  });
+}
+
+
+function sendTokenRefreshMessage(
+  serviceWorker: AuthServiceWorker,
+  authClient: AuthClient,
+  tokens: any
+) {
+  serviceWorker.clients.matchAll().then((clients) => {
+    clients.forEach((client) => {
+      client.postMessage({
+        type: "token-refresh",
+        tokens,
+        client: authClient.id,
+      });
+    });
   });
 }

@@ -17,8 +17,13 @@ export class AuthCodeFlowElement extends PAuthBaseElement {
             event.data.type === "authorization-complete" &&
             event.data.client === this.id
           ) {
-            // sessionStorage.setItem(this.id, JSON.stringify(event.data));
+            sessionStorage.setItem(this.id + "_tokens", JSON.stringify(event.data.tokens));
             document.location.replace(event.data.location);
+          } else {
+            if (event.data.type === "token-refresh" && event.data.client === this.id) {
+              sessionStorage.setItem(this.id + "_tokens", JSON.stringify(event.data.tokens));
+              console.log("Token refreshed");
+            }
           }
         }
       );
@@ -26,6 +31,7 @@ export class AuthCodeFlowElement extends PAuthBaseElement {
   }
 
   logoff(url: string) {
+    sessionStorage.removeItem(this.id + "_tokens");
     this.oAuth.logoff(this.id, url);
   }
 }

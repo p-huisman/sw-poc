@@ -1,4 +1,3 @@
-import { encodedStringFromObject } from "../helpers/crypto";
 import { setupDebugConsole } from "./debug-console";
 import {
   AuthClient,
@@ -6,17 +5,16 @@ import {
   SessionManager,
 } from "./session-manager";
 
-import codeFlowFetchInterceptor from "./fetch-interceptors/code-flow-interceptor";
-import codeFlowLogoff from "./logoff-handlers/code-flow-logoff";
+import codeFlowFetchInterceptor from "./code-flow/fetch-interceptor";
+import codeFlowLogoffHandler from "./code-flow/logoff-handler";
+import authorizationCallbackHandler from "./code-flow/authorization-callback-handler";
 
 export type {};
 
-interface AuthorizationCallbackParam {
+export interface AuthorizationCallbackParam {
   sessionId: string;
   authClient: AuthClient;
-  verifier: string;
-  tokenEndpoint: string;
-  state: any;
+  data: any;
 }
 
 export interface AuthServiceWorker extends ServiceWorkerGlobalScope {
@@ -27,6 +25,7 @@ export interface AuthServiceWorker extends ServiceWorkerGlobalScope {
 }
 
 declare var self: AuthServiceWorker;
+
 self.sessionManager = getSessionManager(self);
 self.debugConsole = setupDebugConsole(false, "[SW]");
 self.authorizationCallbacksInProgress = [];
@@ -102,24 +101,34 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
   const windowClient = await getWindowClient(event.clientId);
 
   if (self.authorizationCallbacksInProgress.length > 0 && windowClient?.url) {
-    await handleAuthorizationCallback(
-      windowClient,
-      self.authorizationCallbacksInProgress[0]
-    );
-    self.authorizationCallbacksInProgress = [];
+    if (
+      self.authorizationCallbacksInProgress[0].authClient.type ===
+      "p-auth-code-flow"
+    ) {
+      await authorizationCallbackHandler(
+        self,
+        windowClient,
+        self.authorizationCallbacksInProgress[0]
+      );
+      self.authorizationCallbacksInProgress = [];
+    }
   }
 
   const session = windowClient?.id
     ? await self.sessionManager.getSessionForWindow(windowClient.id)
     : null;
 
-  const matchingAuthClientForRequestUrl =
-    await self.sessionManager.getAuthClientForRequest(
-      event.request.url,
-      session
-    );
+  const matchingAuthClientForRequestUrl = session
+    ? await self.sessionManager.getAuthClientForRequest(
+        event.request.url,
+        session
+      )
+    : null;
 
-  if (matchingAuthClientForRequestUrl) {
+  if (
+    matchingAuthClientForRequestUrl &&
+    matchingAuthClientForRequestUrl.type === "p-auth-code-flow"
+  ) {
     const response = await codeFlowFetchInterceptor({
       event,
       serviceWorker: self,
@@ -143,56 +152,6 @@ async function getWindowClient(id: string): Promise<WindowClient> {
   return (await clients.find((client) => client?.id === id)) as WindowClient;
 }
 
-async function handleAuthorizationCallback(
-  windowClient: WindowClient,
-  callBack: AuthorizationCallbackParam
-) {
-  const hash = windowClient.url.split("#", 2)[1];
-  const authResponse = getAuthorizationCallbackResponseData(hash);
-  const body = encodedStringFromObject({
-    client_id: callBack.authClient.clientId,
-    code: authResponse.code,
-    code_verifier: callBack.verifier,
-    grant_type: "authorization_code",
-    redirect_uri: self.location.origin + callBack.authClient.callbackPath,
-  });
-
-  const tokenResponse = await fetch(callBack.tokenEndpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-    },
-    body,
-  })
-    .then((response) => response.json())
-    .catch((e) => e);
-  if (tokenResponse instanceof Error) {
-    throw tokenResponse;
-  } else {
-    self.sessionManager
-      .setToken(callBack.sessionId, callBack.authClient.id, tokenResponse)
-      .then(() => {
-        windowClient.postMessage({
-          type: "authorization-complete",
-          tokens: tokenResponse,
-          client: callBack.authClient.id,
-          location: callBack.state.location,
-        });
-      });
-  }
-}
-
-function getAuthorizationCallbackResponseData(queryString: string): any {
-  if (queryString.indexOf("error=") > -1) {
-    return new Error(queryString); // todo get error from query string
-  }
-  return queryString.split("&").reduce((result: any, item: any) => {
-    const parts = item.split("=");
-    result[parts[0]] = decodeURIComponent(parts[1]);
-    return result;
-  }, {});
-}
-
 async function handleLogoff(event: ExtendableMessageEvent) {
   const currentSession = await self.sessionManager.getSession(
     event.data.session
@@ -200,10 +159,13 @@ async function handleLogoff(event: ExtendableMessageEvent) {
   const currentAuthClient = currentSession.oAuthClients.find(
     (client) => client.id === event.data.clientId
   );
-  await codeFlowLogoff({
-    serviceWorker: self,
-    session: currentSession,
-    authClient: currentAuthClient,
-    event,
-  });
+
+  if (currentAuthClient && currentAuthClient.type === "p-auth-code-flow") {
+    await codeFlowLogoffHandler({
+      serviceWorker: self,
+      session: currentSession,
+      authClient: currentAuthClient,
+      event,
+    });
+  }
 }

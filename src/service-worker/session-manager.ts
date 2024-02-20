@@ -7,6 +7,7 @@ export interface AuthClient {
   scope: string;
   callbackPath: string;
   urlPattern: string;
+  type: string;
 }
 
 export interface Session {
@@ -23,9 +24,11 @@ export interface TokenData {
 
 let sessionManager: SessionManagerClass;
 
-export  type SessionManager = SessionManagerClass;
+export type SessionManager = SessionManagerClass;
 
-export const getSessionManager = (swGlobalScope: ServiceWorkerGlobalScope): SessionManager => {
+export const getSessionManager = (
+  swGlobalScope: ServiceWorkerGlobalScope
+): SessionManager => {
   if (!sessionManager) {
     sessionManager = new SessionManagerClass(swGlobalScope);
   }

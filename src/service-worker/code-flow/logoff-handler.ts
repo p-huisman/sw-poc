@@ -3,6 +3,7 @@ import { getOpenIdConfiguration } from "../openid-configurations";
 import { AuthServiceWorker } from "../service-worker";
 import { AuthClient, Session } from "../session-manager";
 
+
 interface LogoffConfig {
   serviceWorker: AuthServiceWorker;
   authClient: AuthClient;
@@ -10,6 +11,16 @@ interface LogoffConfig {
   event: ExtendableMessageEvent;
 }
 
+/**
+ * Code flow logoff handler
+ * 
+ * @param config LogoffConfig
+ * @returns Promise<void>
+ * @description 
+ * This function is used to logoff the user from the application. 
+ * It revokes the tokens and removes the token from the session manager.
+ * it also sends a message to the client to redirect to the end session endpoint.
+ */
 export default async (config: LogoffConfig): Promise<void> => {
   const tokenData = await config.serviceWorker.sessionManager.getToken(
     config.event.data.session,
@@ -55,7 +66,15 @@ export default async (config: LogoffConfig): Promise<void> => {
   }
 };
 
-function revokeTokens(tokenEndpoint: string, clientId: string, tokens: any) {
+/**
+ * Revoke access and refresh token
+ * 
+ * @param tokenEndpoint 
+ * @param clientId 
+ * @param tokens 
+ * @returns Promise<Response[]>
+ */
+function revokeTokens(tokenEndpoint: string, clientId: string, tokens: any): Promise<Response[]> {
   const revokePromises: Promise<Response>[] = [];
   [
     ["access_token", tokens.access_token],
@@ -70,12 +89,21 @@ function revokeTokens(tokenEndpoint: string, clientId: string, tokens: any) {
   return Promise.all(revokePromises);
 }
 
+/**
+ * Revoke a token
+ * 
+ * @param tokenEndpoint 
+ * @param clientId 
+ * @param tokenType 
+ * @param token 
+ * @returns Promise<Response>
+ */
 function revokeToken(
   tokenEndpoint: string,
   clientId: string,
   tokenType: string,
   token: string
-) {
+): Promise<Response> {
   const body = encodedStringFromObject({
     client_id: clientId,
     token,

@@ -95,6 +95,7 @@ export class POauthElement extends HTMLElement {
           item.value,
         ])
       );
+      authClientConfig["type"] = authClient.tagName.toLowerCase();
 
       this.serviceWorkerRegistration.active.postMessage(
         {
