@@ -1,4 +1,5 @@
-import { PAuthBaseElement } from "./p-auth-base";
+import {P_AUTH_CODE_FLOW} from "../constants";
+import {PAuthBaseElement} from "./p-auth-base";
 
 export class AuthCodeFlowElement extends PAuthBaseElement {
   constructor() {
@@ -19,7 +20,7 @@ export class AuthCodeFlowElement extends PAuthBaseElement {
           ) {
             sessionStorage.setItem(
               this.id + "_tokens",
-              JSON.stringify(event.data.tokens)
+              JSON.stringify(event.data.tokens),
             );
             document.location.replace(event.data.location);
           } else {
@@ -29,11 +30,11 @@ export class AuthCodeFlowElement extends PAuthBaseElement {
             ) {
               sessionStorage.setItem(
                 this.id + "_tokens",
-                JSON.stringify(event.data.tokens)
+                JSON.stringify(event.data.tokens),
               );
             }
           }
-        }
+        },
       );
     });
   }
@@ -46,4 +47,4 @@ export class AuthCodeFlowElement extends PAuthBaseElement {
     this.oAuth.logoff(url, this);
   }
 }
-customElements.define("p-auth-code-flow", AuthCodeFlowElement);
+customElements.define(P_AUTH_CODE_FLOW, AuthCodeFlowElement);

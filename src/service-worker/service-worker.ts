@@ -1,30 +1,15 @@
-import { setupDebugConsole } from "./debug-console";
-import {
-  AuthClient,
-  getSessionManager,
-  SessionManager,
-} from "./session-manager";
+import {P_AUTH_CODE_FLOW} from "../constants";
+import {setupDebugConsole} from "./debug-console";
+import {getSessionManager} from "./session-manager";
 
 import codeFlowFetchInterceptor from "./code-flow/fetch-interceptor";
 import codeFlowLogoffHandler from "./code-flow/logoff-handler";
 import authorizationCallbackHandler from "./code-flow/authorization-callback-handler";
+import {AuthServiceWorker} from "../interfaces";
 
 export type {};
 
-export interface AuthorizationCallbackParam {
-  sessionId: string;
-  authClient: AuthClient;
-  data: any;
-}
-
-export interface AuthServiceWorker extends ServiceWorkerGlobalScope {
-  sessionManager: SessionManager;
-  authorizationCallbacksInProgress: AuthorizationCallbackParam[];
-  debugConsole: any;
-  registerPromise: Promise<void> | null;
-}
-
-declare var self: AuthServiceWorker;
+declare let self: AuthServiceWorker;
 
 self.sessionManager = getSessionManager(self);
 self.debugConsole = setupDebugConsole(false, "[SW]");
@@ -47,7 +32,7 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
     if (event.data.session) {
       await getSessionManager(self).updateSessionWindow(
         event.data.session,
-        eventClient.id
+        eventClient.id,
       );
       await self.sessionManager.removeExpiredSessions();
     }
@@ -59,25 +44,26 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
       break;
 
     case "register-auth-client":
-      if (self.registerPromise) {
-        await self.registerPromise;
+      {
+        if (self.registerPromise) {
+          await self.registerPromise;
+        }
+        let resolver: () => void;
+        self.registerPromise = new Promise((resolve) => (resolver = resolve));
+        await updateSessions();
+        const {authClient, session} = event.data;
+        const window = eventClient.id;
+        await self.sessionManager.addAuthClientSession(
+          session,
+          window,
+          authClient,
+        );
+        event.ports[0].postMessage({
+          type: "register-auth-client",
+          success: true,
+        });
+        resolver();
       }
-
-      let resolver: () => void;
-      self.registerPromise = new Promise((resolve) => (resolver = resolve));
-      await updateSessions();
-      const { authClient, session } = event.data;
-      const window = eventClient.id;
-      await self.sessionManager.addAuthClientSession(
-        session,
-        window,
-        authClient
-      );
-      event.ports[0].postMessage({
-        type: "register-auth-client",
-        success: true,
-      });
-      resolver();
       break;
 
     case "logoff":
@@ -103,14 +89,16 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
   if (self.authorizationCallbacksInProgress.length > 0 && windowClient?.url) {
     if (
       self.authorizationCallbacksInProgress[0].authClient.type ===
-      "p-auth-code-flow"
+      P_AUTH_CODE_FLOW
     ) {
       await authorizationCallbackHandler(
         self,
         windowClient,
-        self.authorizationCallbacksInProgress[0]
+        self.authorizationCallbacksInProgress[0],
       );
       self.authorizationCallbacksInProgress = [];
+    } else {
+      // other auth types
     }
   }
 
@@ -121,13 +109,13 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
   const matchingAuthClientForRequestUrl = session
     ? await self.sessionManager.getAuthClientForRequest(
         event.request.url,
-        session
+        session,
       )
     : null;
 
   if (
     matchingAuthClientForRequestUrl &&
-    matchingAuthClientForRequestUrl.type === "p-auth-code-flow"
+    matchingAuthClientForRequestUrl.type === P_AUTH_CODE_FLOW
   ) {
     const response = await codeFlowFetchInterceptor({
       event,
@@ -154,13 +142,13 @@ async function getWindowClient(id: string): Promise<WindowClient> {
 
 async function handleLogoff(event: ExtendableMessageEvent) {
   const currentSession = await self.sessionManager.getSession(
-    event.data.session
+    event.data.session,
   );
   const currentAuthClient = currentSession?.oAuthClients.find(
-    (client) => client.id === event.data.client.id
+    (client) => client.id === event.data.client.id,
   );
 
-  if (currentAuthClient && currentAuthClient?.type === "p-auth-code-flow") {
+  if (currentAuthClient && currentAuthClient?.type === P_AUTH_CODE_FLOW) {
     await codeFlowLogoffHandler({
       serviceWorker: self,
       session: currentSession,
@@ -168,11 +156,13 @@ async function handleLogoff(event: ExtendableMessageEvent) {
       event,
     });
   } else {
-    const allClients = await self.clients.matchAll({ type: "window" });
+    const allClients = await self.clients.matchAll({type: "window"});
     const client = allClients.find((client) => client.focused === true);
     event.data.client.callbackPath;
     const location =
-      event.data.client.callbackPath + "?c=" + event.data.client.id +
+      event.data.client.callbackPath +
+      "?c=" +
+      event.data.client.id +
       "#post_end_session_redirect_uri=" +
       encodeURIComponent(event.data.url.split("#", 1)[0]);
 

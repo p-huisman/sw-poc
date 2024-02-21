@@ -1,8 +1,9 @@
-import { startFetchQueuing, stopFetchQueuing } from "./fetch-queue";
-import { installServiceWorker } from "./sw-installer";
+import {startFetchQueuing, stopFetchQueuing} from "./fetch-queue";
+import {installServiceWorker} from "./sw-installer";
 
 import "./p-auth-code-flow";
-import { kebabCaseToCamelCase } from "../helpers/string";
+import {kebabCaseToCamelCase} from "../helpers/string";
+import {AUTH_LOGOFF_ALL, AUTH_LOGOFF_ALL_URL} from "../constants";
 
 startFetchQueuing();
 
@@ -19,7 +20,7 @@ export class POauthElement extends HTMLElement {
       swInstallResolver();
     });
     this.#initialAuthClients = Array.from(this.childNodes).filter(
-      (n) => n instanceof HTMLElement
+      (n) => n instanceof HTMLElement,
     ) as HTMLElement[];
     navigator.serviceWorker.addEventListener(
       "message",
@@ -31,7 +32,7 @@ export class POauthElement extends HTMLElement {
             document.location.href = event.data.location;
           }
         }
-      }
+      },
     );
   }
 
@@ -73,7 +74,7 @@ export class POauthElement extends HTMLElement {
       debug: this.hasAttribute("debug"),
     });
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const messageChannel = new MessageChannel();
       messageChannel.port1.onmessage = (event) => {
         if (event.data.type === "register-auth-client") {
@@ -93,7 +94,7 @@ export class POauthElement extends HTMLElement {
         Array.from(authClient.attributes).map((item) => [
           kebabCaseToCamelCase(item.name),
           item.value,
-        ])
+        ]),
       );
       authClientConfig["type"] = authClient.tagName.toLowerCase();
 
@@ -103,28 +104,27 @@ export class POauthElement extends HTMLElement {
           session: this.session,
           authClient: authClientConfig,
         },
-        [messageChannel.port2]
+        [messageChannel.port2],
       );
     });
   };
 
   connectedCallback(): void {
-    
     if (document.location.hash.indexOf("post_end_session_redirect_uri=") > 0) {
-      const hasLogoffAll = sessionStorage.getItem("p-oauth-logoff-all");
+      const hasLogoffAll = sessionStorage.getItem(AUTH_LOGOFF_ALL);
       if (hasLogoffAll) {
         const allClients = JSON.parse(hasLogoffAll);
-        const logoffLocation = sessionStorage.getItem("p-oauth-logoff-all-url");
+        const logoffLocation = sessionStorage.getItem(AUTH_LOGOFF_ALL_URL);
         if (allClients.length === 0) {
-          sessionStorage.removeItem("p-oauth-logoff-all");
-          sessionStorage.removeItem("p-oauth-logoff-all-url");
+          sessionStorage.removeItem(AUTH_LOGOFF_ALL);
+          sessionStorage.removeItem(AUTH_LOGOFF_ALL_URL);
           document.location.replace(logoffLocation);
-        } else{
-          this.logoff(logoffLocation)
+        } else {
+          this.logoff(logoffLocation);
         }
         return;
       }
-      
+
       const hasData = document.location.href
         .split("#", 2)[1]
         .split("&")
@@ -142,46 +142,46 @@ export class POauthElement extends HTMLElement {
   logoff = async (url: string, client?: HTMLElement): Promise<void> => {
     if (!client) {
       let allClientIds =
-        JSON.parse(sessionStorage.getItem("p-oauth-logoff-all")) || null;
+        JSON.parse(sessionStorage.getItem(AUTH_LOGOFF_ALL)) || null;
       if (!allClientIds) {
-        sessionStorage.setItem("p-oauth-logoff-all-url", url);
+        sessionStorage.setItem(AUTH_LOGOFF_ALL_URL, url);
         allClientIds = (
           Array.from(this.childNodes).filter(
-            (node) => node instanceof HTMLElement && node.id
+            (node) => node instanceof HTMLElement && node.id,
           ) as HTMLElement[]
         ).map((node) => node.id);
       }
 
       const firstClientId = allClientIds.shift();
       const firstElement = this.querySelector<HTMLElement>(`#${firstClientId}`);
-      if ((firstElement as any)?.logoff){
+      if ((firstElement as any)?.logoff) {
         // logoff without url to inform the auth component
         await (firstElement as any).logoff();
       }
-      sessionStorage.setItem(
-        "p-oauth-logoff-all",
-        JSON.stringify(allClientIds)
-      );
-      
+      sessionStorage.setItem(AUTH_LOGOFF_ALL, JSON.stringify(allClientIds));
+
       if (firstClientId) {
-        const endSessionUrl = firstElement.getAttribute("callback-path") + 
+        const endSessionUrl =
+          firstElement.getAttribute("callback-path") +
           "#post_end_session_redirect_uri=" +
-          encodeURIComponent(document.location.href.split("#", 1)[0] );
+          encodeURIComponent(document.location.href.split("#", 1)[0]);
         await this.#postLogoffMessage(endSessionUrl, firstElement);
         return;
       }
-    } 
-    else {
+    } else {
       await this.#postLogoffMessage(url, client);
     }
   };
 
-  #postLogoffMessage = async (url: string, authClient: HTMLElement): Promise<void> => {
-    const client =  Object.fromEntries(
+  #postLogoffMessage = async (
+    url: string,
+    authClient: HTMLElement,
+  ): Promise<void> => {
+    const client = Object.fromEntries(
       Array.from(authClient.attributes).map((item) => [
         kebabCaseToCamelCase(item.name),
         item.value,
-      ])
+      ]),
     );
     client["type"] = authClient.tagName.toLowerCase();
     await this.#serviceWorkerRegistrationActive;

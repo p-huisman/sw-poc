@@ -11,20 +11,27 @@ export async function pkceChallengeFromVerifier(v: any) {
 
 export function base64urlencode(str: any): string {
   return btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(str))))
-      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
 export function encodedStringFromObject(
   o: any,
   encoding: (arg0: string) => string = encodeURIComponent,
-  seperator = "&") {
-    return Object.keys(o).map((key) => {
+  seperator = "&",
+) {
+  return Object.keys(o)
+    .map((key) => {
       return `${key}=${encoding(o[key])}`;
-    }).join(seperator);
+    })
+    .join(seperator);
 }
 
 export function generateRandomString(): string {
   const array = new Uint32Array(28);
   crypto.getRandomValues(array);
-  return Array.from(array, (dec) => ("0" + dec.toString(16)).substr(-2)).join("");
+  return Array.from(array, (dec) => ("0" + dec.toString(16)).substr(-2)).join(
+    "",
+  );
 }

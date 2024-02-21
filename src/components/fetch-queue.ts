@@ -23,7 +23,7 @@ const fetchQueue: QueuedFetchRequest[] = [];
  * await startFetchQueuing();
  * ```
  * @see stopFetchQueuing
- * 
+ *
  * @description This function replaces the original fetch function with a new one that queues the requests
  */
 export async function startFetchQueuing(): Promise<void> {
@@ -40,7 +40,7 @@ export async function startFetchQueuing(): Promise<void> {
  * await stopFetchQueuing();
  * ```
  * @see startFetchQueuing
- * 
+ *
  * @description This function restores the original fetch function and processes the queued requests
  */
 export async function stopFetchQueuing(removeQueue = false): Promise<void> {
@@ -69,12 +69,12 @@ export async function stopFetchQueuing(removeQueue = false): Promise<void> {
  * @param url - The URL to fetch
  * @param requestInit - The request options
  * @returns Promise<Response>
- * 
+ *
  * @description This original fetch function is replaced with this one that queues the requests
  */
 async function queueFetchRequest(
   url: URL | RequestInfo,
-  requestInit?: RequestInit
+  requestInit?: RequestInit,
 ): Promise<Response> {
   const qItem: any = {
     args: [url, requestInit],
@@ -85,9 +85,4 @@ async function queueFetchRequest(
   });
   fetchQueue.push(qItem);
   return promise as Promise<Response>;
-};
- 
-
-
-  
-  
+}

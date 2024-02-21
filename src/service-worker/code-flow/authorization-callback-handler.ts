@@ -1,12 +1,11 @@
-import { encodedStringFromObject } from "../../helpers/crypto";
-import { AuthServiceWorker, AuthorizationCallbackParam } from "../service-worker";
+import {encodedStringFromObject} from "../../helpers/crypto";
+import {AuthServiceWorker, AuthorizationCallbackParam} from "../../interfaces";
 
 export default async (
   serviceWorker: AuthServiceWorker,
   windowClient: WindowClient,
-  callBack: AuthorizationCallbackParam
+  callBack: AuthorizationCallbackParam,
 ): Promise<void> => {
-
   // get code verifier from hash
   const hash = windowClient.url.split("#", 2)[1];
   const authResponse = getAuthorizationCallbackResponseObject(hash);
@@ -15,7 +14,8 @@ export default async (
     code: authResponse.code,
     code_verifier: callBack.data.verifier,
     grant_type: "authorization_code",
-    redirect_uri: serviceWorker.location.origin + callBack.authClient.callbackPath,
+    redirect_uri:
+      serviceWorker.location.origin + callBack.authClient.callbackPath,
   });
 
   // get token with verifier
@@ -43,7 +43,7 @@ export default async (
         });
       });
   }
-}
+};
 
 function getAuthorizationCallbackResponseObject(queryString: string): any {
   if (queryString.indexOf("error=") > -1) {

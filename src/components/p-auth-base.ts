@@ -1,4 +1,4 @@
-import { POauthElement } from "./p-oauth";
+import {POauthElement} from "./p-oauth";
 
 export class PAuthBaseElement extends HTMLElement {
   constructor() {

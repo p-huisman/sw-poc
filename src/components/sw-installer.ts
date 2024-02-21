@@ -1,6 +1,6 @@
 function getServiceWorkerScriptSrc(): string | null {
   const scriptElement = window.document.querySelector<HTMLScriptElement>(
-    'script[src*="/p-oauth."]'
+    'script[src*="/p-oauth."]',
   );
   if (!scriptElement) {
     return null;
@@ -12,11 +12,11 @@ function getServiceWorkerScriptSrc(): string | null {
 }
 export async function installServiceWorker(
   scope = "/",
-  serviceWorkerScriptSrc?: string
+  serviceWorkerScriptSrc?: string,
 ): Promise<ServiceWorkerRegistration> {
   if (!("serviceWorker" in navigator)) {
     return Promise.reject(
-      new Error("Service workers are not supported by this browser")
+      new Error("Service workers are not supported by this browser"),
     );
   }
   const swScriptSrc = serviceWorkerScriptSrc
@@ -24,11 +24,11 @@ export async function installServiceWorker(
     : getServiceWorkerScriptSrc();
   if (!swScriptSrc) {
     return Promise.reject(
-      new Error("Service workers script source not configured")
+      new Error("Service workers script source not configured"),
     );
   }
 
   return navigator.serviceWorker
-    .register(swScriptSrc, { scope })
+    .register(swScriptSrc, {scope})
     .catch((error) => error);
 }

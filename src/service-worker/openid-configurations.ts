@@ -1,6 +1,6 @@
 export async function getOpenIdConfiguration(
   serviceWorkerGlobalScope: ServiceWorkerGlobalScope,
-  discoveryUrl: string
+  discoveryUrl: string,
 ) {
   const cache = await serviceWorkerGlobalScope.caches.open("openIdDiscovery");
 
@@ -28,19 +28,22 @@ export async function getOpenIdConfiguration(
     return data;
   }
   return Promise.reject(
-    new Error(`Failed to fetch OpenID discovery document from ${url}`)
+    new Error(`Failed to fetch OpenID discovery document from ${url}`),
   );
 }
 
-export async function getItemFromOpenIdConfig(serviceWorker: ServiceWorkerGlobalScope, discoveryUrl: string, item: string) : Promise<string> {
+export async function getItemFromOpenIdConfig(
+  serviceWorker: ServiceWorkerGlobalScope,
+  discoveryUrl: string,
+  item: string,
+): Promise<string> {
   const discoverOpenId = await getOpenIdConfiguration(
     serviceWorker,
-    discoveryUrl
+    discoveryUrl,
   ).catch((e) => e);
   if (discoverOpenId instanceof Error) {
     return Promise.reject(discoverOpenId);
-  }
-  else {
+  } else {
     return discoverOpenId[item];
   }
 }

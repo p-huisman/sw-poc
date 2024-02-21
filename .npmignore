@@ -1,0 +1,4 @@
+.chrome/
+coverage/
+node_modules/
+TESTS-*

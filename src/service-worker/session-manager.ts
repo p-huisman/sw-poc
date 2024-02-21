@@ -1,33 +1,12 @@
-import { get, set } from "idb-keyval";
-
-export interface AuthClient {
-  id: string;
-  discoveryUrl: string;
-  clientId: string;
-  scope: string;
-  callbackPath: string;
-  urlPattern: string;
-  type: string;
-}
-
-export interface Session {
-  sessionId: string;
-  window: string;
-  oAuthClients: AuthClient[];
-}
-
-export interface TokenData {
-  sessionId: string;
-  clientId: string;
-  tokens: any;
-}
+import {get, set} from "idb-keyval";
+import {Session, AuthClient, TokenData} from "../interfaces";
 
 let sessionManager: SessionManagerClass;
 
 export type SessionManager = SessionManagerClass;
 
 export const getSessionManager = (
-  swGlobalScope: ServiceWorkerGlobalScope
+  swGlobalScope: ServiceWorkerGlobalScope,
 ): SessionManager => {
   if (!sessionManager) {
     sessionManager = new SessionManagerClass(swGlobalScope);
@@ -46,7 +25,7 @@ class SessionManagerClass {
   public async addAuthClientSession(
     sessionId: string,
     window: string,
-    oAuthClient: AuthClient
+    oAuthClient: AuthClient,
   ): Promise<void> {
     const sessions = (await get<Session[]>("sessions")) || [];
     const session = sessions.find((session) => session.sessionId === sessionId);
@@ -57,7 +36,7 @@ class SessionManagerClass {
         session.oAuthClients = [];
       } else {
         const c = session.oAuthClients.findIndex(
-          (o) => o.id === oAuthClient.id
+          (o) => o.id === oAuthClient.id,
         );
 
         if (c < 0) {
@@ -91,10 +70,10 @@ class SessionManagerClass {
   public async removeExpiredSessions() {
     const sessions = (await get<Session[]>("sessions")) || [];
     const allWindows = (await this.swGlobalScope.clients.matchAll()).map(
-      (client) => client.id
+      (client) => client.id,
     );
     const updatedSessions = sessions.filter(
-      (session) => allWindows.indexOf(session.window) > -1
+      (session) => allWindows.indexOf(session.window) > -1,
     );
     await set("sessions", updatedSessions);
   }
@@ -109,10 +88,10 @@ class SessionManagerClass {
       return null;
     }
     const allPatterns = session.oAuthClients.map(
-      (oauthClient) => oauthClient.urlPattern
+      (oauthClient) => oauthClient.urlPattern,
     );
     const matchingPattern = allPatterns?.find((oAuthPattern) =>
-      new RegExp(oAuthPattern).test(url)
+      new RegExp(oAuthPattern).test(url),
     );
     if (matchingPattern) {
       return session.oAuthClients.find((s) => s.urlPattern === matchingPattern);
@@ -124,19 +103,19 @@ class SessionManagerClass {
     const tokendata = (await get<TokenData[]>("tokens")) || [];
 
     return tokendata.find(
-      (token) => token.sessionId === sessionId && token.clientId === clientId
+      (token) => token.sessionId === sessionId && token.clientId === clientId,
     )?.tokens;
   }
 
   public async setToken(sessionId: string, clientId: string, tokendata: any) {
     const tokens = (await get<TokenData[]>("tokens")) || [];
     const token = tokens.find(
-      (token) => token.sessionId === sessionId && token.clientId === clientId
+      (token) => token.sessionId === sessionId && token.clientId === clientId,
     );
     if (token) {
       token.tokens = tokendata;
     } else {
-      tokens.push({ sessionId, clientId, tokens: tokendata });
+      tokens.push({sessionId, clientId, tokens: tokendata});
     }
     await set("tokens", tokens);
   }
@@ -144,7 +123,7 @@ class SessionManagerClass {
   public async removeToken(sessionId: string, clientId: string) {
     const tokens = (await get<TokenData[]>("tokens")) || [];
     const updatedTokens = tokens.filter(
-      (token) => token.sessionId !== sessionId || token.clientId !== clientId
+      (token) => token.sessionId !== sessionId || token.clientId !== clientId,
     );
     await set("tokens", updatedTokens);
   }
