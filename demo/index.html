@@ -46,10 +46,12 @@
       <div>
         <button id="Fetch1Button">Fetch DuendeDemo</button>
         <button id="Logoff1Button">Logoff DuendeDemo</button>
+        <button data-id="DuendeDemo" id="GetUserinfo1Button">Get userinfo</button>
       </div>
       <div>
         <button id="Fetch2Button">Fetch PfzwDemo</button>
         <button id="Logoff2Button">Logoff PfzwDemo</button>
+        <button data-id="PfzwDemo" id="GetUserinfo2Button">Get userinfo</button>
       </div>
       <div>
         <button id="LogoffAllButton">Logoff All</button>
@@ -80,6 +82,15 @@
         document.querySelector("p-oauth").logoff("/");
       })
 
+      document.getElementById("GetUserinfo1Button").addEventListener("click", (e) => {
+        console.log(e.target.dataset);
+        getUserinfo(e.target.dataset.id)
+      })
+      document.getElementById("GetUserinfo2Button").addEventListener("click", (e) => {
+        console.log(e.target.dataset);
+        getUserinfo(e.target.dataset.id)
+      })
+
       function doFetch(url) {
         fetch(url).then((response) => {
           if (!response.ok) {
@@ -96,6 +107,14 @@
         const pre = document.createElement("pre");
         pre.innerHTML = `<h3>${title}</h3>`  + "\r\n" + text;
         document.getElementById("output").prepend(pre);
+      }
+
+      function getUserinfo(id) {
+        const el = document.getElementById(id);
+        console.log(el);
+        el.getUserinfo().then((data) => {
+          prependOutput("Userinfo", JSON.stringify(data, null, 2));
+        });
       }
 
       // dom conent loaded

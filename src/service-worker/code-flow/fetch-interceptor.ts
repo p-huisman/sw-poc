@@ -29,6 +29,7 @@ interface RefreshConfig {
   refreshToken: string;
 }
 
+// eslint-disable-next-line sonarjs/cognitive-complexity
 export default async (config: InterceptFetchConfig): Promise<Response> => {
   // get token from session manager
   config.serviceWorker.debugConsole.info(
@@ -50,9 +51,18 @@ export default async (config: InterceptFetchConfig): Promise<Response> => {
     );
 
     // try first with token, if it fails then post authorization required message
-    const response = await fetchWithAuthorizationHeader(config.event.request);
+    const response = await fetchWithAuthorizationHeader(
+      config.event.request,
+    ).catch((e) => e);
     if (response.status !== 401) {
-      return response;
+      if (response instanceof Error) {
+        config.serviceWorker.debugConsole.error(
+          "fetch interceptor: request failed",
+          response,
+        );
+        return Promise.reject(response);
+      }
+      return Promise.resolve(response);
     }
 
     // do authorization required message without prompt (in iframe)
@@ -162,6 +172,7 @@ async function getTokenFromSessionManager(
 }
 
 // try fetch with token, if refesh param is set then try to refresh token before fetching
+// eslint-disable-next-line sonarjs/cognitive-complexity
 async function tryFetch(
   config: InterceptFetchConfig,
   token: string,
@@ -218,7 +229,44 @@ async function tryFetch(
     config.serviceWorker.debugConsole.error(
       "fetch with authorization header result in 401",
     );
-    return Promise.reject(new Error("401"));
+
+    const silentRenew = await postAuthorizationRequiredMessage(
+      config.serviceWorker,
+      config.event,
+      config.authClient,
+      config.session,
+      true,
+    ).catch((e) => e);
+    // authorization required message if we don't have a token or if silent renew failed
+    const tokenData = await getTokenFromSessionManager(config);
+    if (silentRenew instanceof Error || !tokenData?.access_token) {
+      // post authorization required message
+      postAuthorizationRequiredMessage(
+        config.serviceWorker,
+        config.event,
+        config.authClient,
+        config.session,
+      );
+      return new Promise(() => {}); // return a pending promise to stop the fetch event
+    } else {
+      const response = await fetchWithAuthorizationHeader(
+        config.event.request,
+        `Bearer ${tokenData.access_token}`,
+      ).catch((e) => e);
+      if (response.status === 401) {
+        postAuthorizationRequiredMessage(
+          config.serviceWorker,
+          config.event,
+          config.authClient,
+          config.session,
+        );
+        return new Promise(() => {});
+      }
+      if (response instanceof Error) {
+        return Promise.reject(response);
+      }
+      return response;
+    }
   }
   if (response instanceof Error) {
     config.serviceWorker.debugConsole.error(
