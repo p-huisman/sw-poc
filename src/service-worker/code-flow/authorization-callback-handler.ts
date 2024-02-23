@@ -9,6 +9,17 @@ export default async (
   // get code verifier from hash
   const hash = windowClient.url.split("#", 2)[1];
   const authResponse = getAuthorizationCallbackResponseObject(hash);
+  // todo: handle error for silent signin
+  if (hash.indexOf("error=") > -1) {
+    windowClient.postMessage({
+      type: "authorization-complete",
+      error: hash,
+      client: callBack.authClient.id,
+      silent: callBack.data.state.silent,
+    });
+    return Promise.reject(new Error(hash));
+  }
+  // get token with verifier
   const body = encodedStringFromObject({
     client_id: callBack.authClient.clientId,
     code: authResponse.code,
@@ -40,6 +51,7 @@ export default async (
           tokens: tokenResponse,
           client: callBack.authClient.id,
           location: callBack.data.state.location,
+          silent: callBack.data.state.silent,
         });
       });
   }
