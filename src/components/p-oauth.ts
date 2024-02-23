@@ -4,6 +4,7 @@ import {installServiceWorker} from "./sw-installer";
 import "./p-auth-code-flow";
 import {kebabCaseToCamelCase} from "../helpers/string";
 import {AUTH_LOGOFF_ALL, AUTH_LOGOFF_ALL_URL} from "../constants";
+import {PAuthBaseElement} from "./p-auth-base";
 
 startFetchQueuing();
 
@@ -47,9 +48,9 @@ export class POauthElement extends HTMLElement {
     });
   }
 
-  swInstalled: Promise<void>;
-
   #initialAuthClients: HTMLElement[] = [];
+
+  swInstalled: Promise<void>;
 
   get session(): string {
     let session = sessionStorage.getItem("p-oauth-session");
@@ -64,6 +65,26 @@ export class POauthElement extends HTMLElement {
 
   #allAuthClientsRegistered = async (): Promise<void> => {
     stopFetchQueuing();
+  };
+
+  #postLogoffMessage = async (
+    url: string,
+    authClient: HTMLElement,
+  ): Promise<void> => {
+    const client = Object.fromEntries(
+      Array.from(authClient.attributes).map((item) => [
+        kebabCaseToCamelCase(item.name),
+        item.value,
+      ]),
+    );
+    client["type"] = authClient.tagName.toLowerCase();
+    await this.#serviceWorkerRegistrationActive;
+    this.serviceWorkerRegistration.active.postMessage({
+      session: this.session,
+      type: "logoff",
+      url,
+      client,
+    });
   };
 
   registerAuthClient = async (authClient: HTMLElement): Promise<void> => {
@@ -155,7 +176,7 @@ export class POauthElement extends HTMLElement {
       const firstClientId = allClientIds.shift();
       const firstElement = this.querySelector<HTMLElement>(`#${firstClientId}`);
       if ((firstElement as any)?.logoff) {
-        // logoff without url to inform the auth component
+        // logoff without 2nd param (url)
         await (firstElement as any).logoff();
       }
       sessionStorage.setItem(AUTH_LOGOFF_ALL, JSON.stringify(allClientIds));
@@ -173,24 +194,18 @@ export class POauthElement extends HTMLElement {
     }
   };
 
-  #postLogoffMessage = async (
-    url: string,
-    authClient: HTMLElement,
-  ): Promise<void> => {
-    const client = Object.fromEntries(
-      Array.from(authClient.attributes).map((item) => [
-        kebabCaseToCamelCase(item.name),
-        item.value,
-      ]),
-    );
-    client["type"] = authClient.tagName.toLowerCase();
-    await this.#serviceWorkerRegistrationActive;
-    this.serviceWorkerRegistration.active.postMessage({
-      session: this.session,
-      type: "logoff",
-      url,
-      client,
-    });
+  isLoggedIn = async (id?: string): Promise<boolean> => {
+    const auth: PAuthBaseElement = id
+      ? this.querySelector("#" + id)
+      : (this.firstElementChild as PAuthBaseElement);
+    // todo: wait for custom element to be defined
+    let userInfo = null;
+    try {
+      userInfo = await auth.getUserinfo();
+    } catch (e) {
+      userInfo = null;
+    }
+    return userInfo !== null;
   };
 }
 

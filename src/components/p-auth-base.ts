@@ -8,4 +8,8 @@ export class PAuthBaseElement extends HTMLElement {
   get oAuth(): POauthElement {
     return this.closest("p-oauth");
   }
+
+  async getUserinfo(): Promise<any> {
+    return Promise.reject(new Error("Not implemented"));
+  }
 }

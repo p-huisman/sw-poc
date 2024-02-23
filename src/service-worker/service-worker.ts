@@ -4,6 +4,7 @@ import {getSessionManager} from "./session-manager";
 
 import codeFlowFetchInterceptor from "./code-flow/fetch-interceptor";
 import codeFlowLogoffHandler from "./code-flow/logoff-handler";
+import codeFlowUserinfoHandler from "./code-flow/userinfo-handler";
 import authorizationCallbackHandler from "./code-flow/authorization-callback-handler";
 import {AuthServiceWorker} from "../interfaces";
 
@@ -41,6 +42,26 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
   switch (event.data.type) {
     case "debug-console":
       self.debugConsole = setupDebugConsole(event.data.debug, "[SW]");
+      break;
+
+    case "userinfo":
+      {
+        if (event.data.authClient.type === P_AUTH_CODE_FLOW) {
+          const userinfo = await codeFlowUserinfoHandler({
+            serviceWorker: self,
+            authClient: event.data.authClient,
+            session: event.data.session,
+            event,
+          }).catch((e) => e);
+          event.ports[0].postMessage({
+            type: "userinfo",
+            userinfo,
+            error: userinfo instanceof Error ? userinfo : null,
+          });
+        } else {
+          // other auth types
+        }
+      }
       break;
 
     case "register-auth-client":

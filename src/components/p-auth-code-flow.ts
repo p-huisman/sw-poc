@@ -1,4 +1,5 @@
 import {P_AUTH_CODE_FLOW} from "../constants";
+import {kebabCaseToCamelCase} from "../helpers/string";
 import {PAuthBaseElement} from "./p-auth-base";
 
 export class AuthCodeFlowElement extends PAuthBaseElement {
@@ -39,12 +40,55 @@ export class AuthCodeFlowElement extends PAuthBaseElement {
     });
   }
 
+  // #userInfoPromise: Promise<any>;
+
+  // #userinfoTask: PromiseResult;
+
   logoff(url?: string) {
     sessionStorage.removeItem(this.id + "_tokens");
     if (!url) {
       return;
     }
     this.oAuth.logoff(url, this);
+  }
+
+  async getUserinfo(): Promise<any> {
+
+    return new Promise((resolve, reject) => {
+      const messageChannel = new MessageChannel();
+      messageChannel.port1.onmessage = (event) => {
+        console.log("get user info");
+        if (event.data.type === "userinfo") {
+          messageChannel.port1.close();
+          messageChannel.port2.close();
+          if (event.data.error) {
+            reject(
+              new Error(
+                event.data.error ? event.data.error : "User info error",
+              ),
+            );
+          } else {
+            resolve(event.data.userinfo);
+          }
+        }
+      };
+      const authClientConfig = Object.fromEntries(
+        Array.from(this.attributes).map((item) => [
+          kebabCaseToCamelCase(item.name),
+          item.value,
+        ]),
+      );
+      authClientConfig["type"] = this.tagName.toLowerCase();
+
+      this.oAuth.serviceWorkerRegistration.active.postMessage(
+        {
+          type: "userinfo",
+          session: this.oAuth.session,
+          authClient: authClientConfig,
+        },
+        [messageChannel.port2],
+      );
+    });
   }
 }
 customElements.define(P_AUTH_CODE_FLOW, AuthCodeFlowElement);

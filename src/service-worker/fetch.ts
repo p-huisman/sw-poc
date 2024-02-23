@@ -6,9 +6,11 @@ export function fetchWithAuthorizationHeader(
   if (authorizationHeader) {
     headers.append("Authorization", authorizationHeader);
   }
-  for (const key of (request.headers as any).keys()) {
-    if (key.toString().toLowerCase() !== "authorization") {
-      headers.append(key, request.headers.get(key));
+  if (request.headers) {
+    for (const key of (request.headers as any).keys()) {
+      if (key.toString().toLowerCase() !== "authorization") {
+        headers.append(key, request.headers.get(key));
+      }
     }
   }
   const {
