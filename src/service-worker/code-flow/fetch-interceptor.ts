@@ -8,7 +8,12 @@ import {
   getItemFromOpenIdConfig,
   getOpenIdConfiguration,
 } from "../openid-configurations";
-import {AuthServiceWorker, AuthClient, Session} from "../../interfaces";
+import {
+  AuthServiceWorker,
+  AuthClient,
+  Session,
+  TokenData,
+} from "../../interfaces";
 
 interface InterceptFetchConfig {
   serviceWorker: AuthServiceWorker;
@@ -29,7 +34,7 @@ export default async (config: InterceptFetchConfig): Promise<Response> => {
   config.serviceWorker.debugConsole.info(
     "fetch interceptor: get token from session manager",
   );
-  const tokenData = await getTokenFromSessionManager(config);
+  let tokenData = await getTokenFromSessionManager(config);
   let authorizationHeader: string | null = null;
   let response: Response | null = null;
 
@@ -43,13 +48,34 @@ export default async (config: InterceptFetchConfig): Promise<Response> => {
     config.serviceWorker.debugConsole.info(
       "fetch interceptor: no token but is required for request",
     );
-    await postAuthorizationRequiredMessage(
+
+    // try first with token, if it fails then post authorization required message
+    const response = await fetchWithAuthorizationHeader(config.event.request);
+    if (response.status !== 401) {
+      return response;
+    }
+
+    // do authorization required message without prompt (in iframe)
+    const silentRenew = await postAuthorizationRequiredMessage(
       config.serviceWorker,
       config.event,
       config.authClient,
       config.session,
-    );
-    return new Promise(() => {}); // return a pending promise to stop the fetch event
+      true,
+    ).catch((e) => e);
+    // authorization required message if we don't have a token or if silent renew failed
+    tokenData = await getTokenFromSessionManager(config);
+    if (silentRenew instanceof Error || !tokenData?.access_token) {
+      // silent renew failed, do normal renew
+      postAuthorizationRequiredMessage(
+        config.serviceWorker,
+        config.event,
+        config.authClient,
+        config.session,
+      );
+      return new Promise(() => {}); // return a pending promise to stop the fetch event
+    }
+    authorizationHeader = `Bearer ${tokenData.access_token}`;
   }
 
   // try fetch with token
@@ -94,13 +120,29 @@ export default async (config: InterceptFetchConfig): Promise<Response> => {
       config.serviceWorker.debugConsole.info(
         `fetch interceptor: request with refreshed token failed (${response instanceof Error ? response.message : response.status})`,
       );
-      await postAuthorizationRequiredMessage(
+
+      // do authorization required message without prompt (in iframe)
+      const silentRenew = await postAuthorizationRequiredMessage(
         config.serviceWorker,
         config.event,
         config.authClient,
         config.session,
-      );
-      return new Promise(() => {}); // return a pending promise to stop the fetch event
+        true,
+      ).catch((e) => e);
+      // authorization required message if we don't have a token or if silent renew failed
+      tokenData = await getTokenFromSessionManager(config);
+      authorizationHeader = `Bearer ${tokenData.access_token}`;
+
+      if (silentRenew instanceof Error || !tokenData?.access_token) {
+        await postAuthorizationRequiredMessage(
+          config.serviceWorker,
+          config.event,
+          config.authClient,
+          config.session,
+        );
+        return new Promise(() => {}); // return a pending promise to stop the fetch event
+      }
+      response = await tryFetch(config, authorizationHeader).catch((e) => e);
     }
   }
   return response;
@@ -221,7 +263,8 @@ async function postAuthorizationRequiredMessage(
   event: FetchEvent,
   oAuthClient: AuthClient,
   session: Session,
-) {
+  silent = false,
+): Promise<void | TokenData> {
   const serviceWorkerClient = await serviceWorker.clients.get(event.clientId);
 
   const discoverOpenId = await getOpenIdConfiguration(
@@ -232,26 +275,32 @@ async function postAuthorizationRequiredMessage(
   const verifier = generateRandomString();
   const codeChallenge = await pkceChallengeFromVerifier(verifier);
   const currentUrl = new URL(serviceWorkerClient.url);
-  const state = {
+  const state: any = {
     location: serviceWorkerClient.url.replace(currentUrl.origin, ""),
   };
+
+  if (silent) {
+    state.silent = silent;
+  }
+
+  const tokenLocationParams: any = {
+    client_id: oAuthClient.clientId,
+    code_challenge: codeChallenge,
+    code_challenge_method: "S256",
+    response_mode: "fragment",
+    response_type: "code",
+    redirect_uri: self.location.origin + oAuthClient.callbackPath,
+    scope: oAuthClient.scope,
+    state: JSON.stringify(state),
+  };
+  if (silent) {
+    tokenLocationParams.prompt = "none";
+  }
+
   const url =
     discoverOpenId.authorization_endpoint +
     "?" +
-    encodedStringFromObject(
-      {
-        client_id: oAuthClient.clientId,
-        code_challenge: codeChallenge,
-        code_challenge_method: "S256",
-        response_mode: "fragment",
-        response_type: "code",
-        redirect_uri: self.location.origin + oAuthClient.callbackPath,
-        scope: oAuthClient.scope,
-        state: JSON.stringify(state),
-      },
-      encodeURIComponent,
-      "&",
-    );
+    encodedStringFromObject(tokenLocationParams, encodeURIComponent, "&");
   serviceWorker.authorizationCallbacksInProgress.push({
     authClient: oAuthClient,
     data: {
@@ -261,11 +310,39 @@ async function postAuthorizationRequiredMessage(
     },
     sessionId: session.sessionId,
   });
-
+  if (silent) {
+    return postSilentRenewMessage(serviceWorkerClient, oAuthClient.id, url);
+  }
   serviceWorkerClient.postMessage({
     type: "authorize",
     client: oAuthClient.id,
     url,
+  });
+}
+
+async function postSilentRenewMessage(
+  serviceWorkerClient: Client,
+  oAuthClientId: string,
+  url: string,
+): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const messageChannel = new MessageChannel();
+    messageChannel.port1.onmessage = (event) => {
+      if (event.data.error) {
+        reject(event.data.error);
+      } else {
+        resolve(event.data);
+      }
+    };
+    serviceWorkerClient.postMessage(
+      {
+        type: "authorize",
+        client: oAuthClientId,
+        url,
+        silent: true,
+      },
+      [messageChannel.port2],
+    );
   });
 }
 

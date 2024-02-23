@@ -1,5 +1,6 @@
 import {P_AUTH_CODE_FLOW} from "../constants";
 import {kebabCaseToCamelCase} from "../helpers/string";
+import {AuthFlowIFrameWrapper} from "../helpers/code-flow-iframe-wrapper";
 import {PAuthBaseElement} from "./p-auth-base";
 
 export class AuthCodeFlowElement extends PAuthBaseElement {
@@ -14,7 +15,7 @@ export class AuthCodeFlowElement extends PAuthBaseElement {
             event.data.type === "authorize" &&
             event.data.client === this.id
           ) {
-            document.location.href = event.data.url;
+            this.handleAuthorization(event);
           } else if (
             event.data.type === "authorization-complete" &&
             event.data.client === this.id
@@ -23,7 +24,15 @@ export class AuthCodeFlowElement extends PAuthBaseElement {
               this.id + "_tokens",
               JSON.stringify(event.data.tokens),
             );
-            document.location.replace(event.data.location);
+            if (event.data.silent) {
+              // we are in the callback page inside an iframe
+              parent.postMessage({
+                type: "silent-signin",
+                success: event.data.error === undefined,
+              });
+            } else {
+              document.location.replace(event.data.location);
+            }
           } else {
             if (
               event.data.type === "token-refresh" &&
@@ -40,9 +49,20 @@ export class AuthCodeFlowElement extends PAuthBaseElement {
     });
   }
 
-  // #userInfoPromise: Promise<any>;
-
-  // #userinfoTask: PromiseResult;
+  async handleAuthorization(event: MessageEventInit<any>) {
+    if (!event.data.silent) {
+      document.location.href = event.data.url;
+      return;
+    }
+    const iframeWrapper = new AuthFlowIFrameWrapper();
+    const silentNewSuccess = await iframeWrapper.navigate(event.data.url);
+    event.ports[0].postMessage({
+      type: "silent-signin",
+      success: silentNewSuccess,
+      session: this.oAuth.session,
+      authClientId: this.id,
+    });
+  }
 
   logoff(url?: string) {
     sessionStorage.removeItem(this.id + "_tokens");

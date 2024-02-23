@@ -116,7 +116,7 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
         self,
         windowClient,
         self.authorizationCallbacksInProgress[0],
-      );
+      ).catch((e) => e);
       self.authorizationCallbacksInProgress = [];
     } else {
       // other auth types
