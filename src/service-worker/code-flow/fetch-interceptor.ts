@@ -15,48 +15,47 @@ import {
   TokenData,
 } from "../../interfaces";
 
-interface InterceptFetchConfig {
+interface InterceptFetchOptions {
   serviceWorker: AuthServiceWorker;
   authClient: AuthClient;
   session: Session;
   event: FetchEvent;
 }
 
-interface RefreshConfig {
+interface RefreshOptions {
   serviceWorker: AuthServiceWorker;
   tokenEndpoint: string;
   clientId: string;
   refreshToken: string;
 }
 
-// eslint-disable-next-line sonarjs/cognitive-complexity
-export default async (config: InterceptFetchConfig): Promise<Response> => {
+export default async (options: InterceptFetchOptions): Promise<Response> => {
   // get token from session manager
-  config.serviceWorker.debugConsole.info(
+  options.serviceWorker.debugConsole.info(
     "fetch interceptor: get token from session manager",
   );
-  let tokenData = await getTokenFromSessionManager(config);
+  const tokenData = await getTokenFromSessionManager(options);
   let authorizationHeader: string | null = null;
   let response: Response | null = null;
 
   if (tokenData) {
-    config.serviceWorker.debugConsole.info(
+    options.serviceWorker.debugConsole.info(
       "fetch interceptor: got token from session manager",
     );
     authorizationHeader = `Bearer ${tokenData.access_token}`;
   } else {
     // no token but is required for request
-    config.serviceWorker.debugConsole.info(
+    options.serviceWorker.debugConsole.info(
       "fetch interceptor: no token but is required for request",
     );
 
     // try first with token, if it fails then post authorization required message
     const response = await fetchWithAuthorizationHeader(
-      config.event.request,
+      options.event.request,
     ).catch((e) => e);
     if (response.status !== 401) {
       if (response instanceof Error) {
-        config.serviceWorker.debugConsole.error(
+        options.serviceWorker.debugConsole.error(
           "fetch interceptor: request failed",
           response,
         );
@@ -65,60 +64,53 @@ export default async (config: InterceptFetchConfig): Promise<Response> => {
       return Promise.resolve(response);
     }
 
-    // do authorization required message without prompt (in iframe)
-    const silentRenew = await postAuthorizationRequiredMessage(
-      config.serviceWorker,
-      config.event,
-      config.authClient,
-      config.session,
-      true,
-    ).catch((e) => e);
-    // authorization required message if we don't have a token or if silent renew failed
-    tokenData = await getTokenFromSessionManager(config);
-    if (silentRenew instanceof Error || !tokenData?.access_token) {
-      // silent renew failed, do normal renew
-      postAuthorizationRequiredMessage(
-        config.serviceWorker,
-        config.event,
-        config.authClient,
-        config.session,
-      );
+    authorizationHeader = await getAuthorizationHeaderUsingSilentRenew(options);
+    if (!authorizationHeader) {
       return new Promise(() => {}); // return a pending promise to stop the fetch event
     }
-    authorizationHeader = `Bearer ${tokenData.access_token}`;
   }
 
   // try fetch with token
-  config.serviceWorker.debugConsole.info(
+  options.serviceWorker.debugConsole.info(
     "fetch interceptor: try fetch with token",
   );
-  response = await tryFetch(config, authorizationHeader).catch((e) => e);
+  response = await tryFetch(options, authorizationHeader).catch((e) => e);
+  handleFailedFetch(options, authorizationHeader, tokenData, response);
+  return response;
+};
+
+async function handleFailedFetch(
+  options: InterceptFetchOptions,
+  authorizationHeader: string,
+  tokenData: any,
+  response: Response,
+) {
   if (response instanceof Error && response.message === "401") {
     // error or token expired
-    config.serviceWorker.debugConsole.error(
+    options.serviceWorker.debugConsole.error(
       `fetch interceptor: request failed (${response.message} ${authorizationHeader}) get token endpoint`,
     );
     // get token endpoint
     const tokenEndpoint = await getItemFromOpenIdConfig(
-      config.serviceWorker,
-      config.authClient.discoveryUrl,
+      options.serviceWorker,
+      options.authClient.discoveryUrl,
       "token_endpoint",
     ).catch((e) => e);
     if (tokenEndpoint instanceof Error) {
-      config.serviceWorker.debugConsole.error(
+      options.serviceWorker.debugConsole.error(
         `fetch interceptor: failed to get token endpoint (${tokenEndpoint.message})`,
       );
       return Promise.resolve(response);
     }
     // try fetch with refresh token config
-    config.serviceWorker.debugConsole.info(
+    options.serviceWorker.debugConsole.info(
       `fetch interceptor: request failed (${response.message}) try to refresh token`,
     );
     // refresh token and retry fetch
-    response = await tryFetch(config, null, {
-      serviceWorker: config.serviceWorker,
+    response = await tryFetch(options, null, {
+      serviceWorker: options.serviceWorker,
       tokenEndpoint,
-      clientId: config.authClient.clientId,
+      clientId: options.authClient.clientId,
       refreshToken: tokenData.refresh_token,
     }).catch((e) => e);
 
@@ -127,138 +119,155 @@ export default async (config: InterceptFetchConfig): Promise<Response> => {
         response.message === "Failed to refresh token") ||
       response.status === 401
     ) {
-      config.serviceWorker.debugConsole.info(
+      options.serviceWorker.debugConsole.info(
         `fetch interceptor: request with refreshed token failed (${response instanceof Error ? response.message : response.status})`,
       );
 
-      // do authorization required message without prompt (in iframe)
-      const silentRenew = await postAuthorizationRequiredMessage(
-        config.serviceWorker,
-        config.event,
-        config.authClient,
-        config.session,
-        true,
-      ).catch((e) => e);
-      // authorization required message if we don't have a token or if silent renew failed
-      tokenData = await getTokenFromSessionManager(config);
-      authorizationHeader = `Bearer ${tokenData.access_token}`;
-
-      if (silentRenew instanceof Error || !tokenData?.access_token) {
-        await postAuthorizationRequiredMessage(
-          config.serviceWorker,
-          config.event,
-          config.authClient,
-          config.session,
-        );
+      authorizationHeader =
+        await getAuthorizationHeaderUsingSilentRenew(options);
+      if (!authorizationHeader) {
         return new Promise(() => {}); // return a pending promise to stop the fetch event
       }
-      response = await tryFetch(config, authorizationHeader).catch((e) => e);
+      response = await tryFetch(options, authorizationHeader).catch((e) => e);
     }
   }
   return response;
-};
+}
+
+async function getAuthorizationHeaderUsingSilentRenew(
+  options: InterceptFetchOptions,
+): Promise<string> {
+  // do authorization required message without prompt (in iframe)
+  const silentRenew = await postAuthorizationRequiredMessage(
+    options.serviceWorker,
+    options.event,
+    options.authClient,
+    options.session,
+    true,
+  ).catch((e) => e);
+  // authorization required message if we don't have a token or if silent renew failed
+  const tokenData = await getTokenFromSessionManager(options);
+  const authorizationHeader = tokenData?.access_token
+    ? `Bearer ${tokenData.access_token}`
+    : null;
+
+  if (silentRenew instanceof Error || !tokenData?.access_token) {
+    await postAuthorizationRequiredMessage(
+      options.serviceWorker,
+      options.event,
+      options.authClient,
+      options.session,
+    );
+    return null;
+  } else {
+    return authorizationHeader;
+  }
+}
 
 // get token from session manager
 async function getTokenFromSessionManager(
-  config: InterceptFetchConfig,
+  options: InterceptFetchOptions,
 ): Promise<any> {
-  config.serviceWorker.debugConsole.info("getTokenFromSessionManager", config);
-  const tokenData = await config.serviceWorker.sessionManager.getToken(
-    config.session.sessionId,
-    config.authClient.id,
+  options.serviceWorker.debugConsole.info(
+    "getTokenFromSessionManager",
+    options,
   );
-  config.serviceWorker.debugConsole.info("tokenData response:", tokenData);
+  const tokenData = await options.serviceWorker.sessionManager.getToken(
+    options.session.sessionId,
+    options.authClient.id,
+  );
+  options.serviceWorker.debugConsole.info("tokenData response:", tokenData);
   return tokenData;
 }
 
 // try fetch with token, if refesh param is set then try to refresh token before fetching
 // eslint-disable-next-line sonarjs/cognitive-complexity
 async function tryFetch(
-  config: InterceptFetchConfig,
+  options: InterceptFetchOptions,
   token: string,
-  refreshParams?: RefreshConfig,
+  refreshOptions?: RefreshOptions,
 ): Promise<Response> {
   let currentToken: string | Error = token;
-  config.serviceWorker.debugConsole.info("try to fetch");
-  if (refreshParams) {
-    config.serviceWorker.debugConsole.info(
+  options.serviceWorker.debugConsole.info("try to fetch");
+  if (refreshOptions) {
+    options.serviceWorker.debugConsole.info(
       "first get a fresh token:",
-      refreshParams,
+      refreshOptions,
     );
     const newTokenData = await refreshToken(
-      refreshParams.tokenEndpoint,
-      refreshParams.clientId,
-      refreshParams.refreshToken,
+      refreshOptions.tokenEndpoint,
+      refreshOptions.clientId,
+      refreshOptions.refreshToken,
     )
       .then((r) => r.json())
       .catch((e) => e);
     if (newTokenData instanceof Error) {
-      config.serviceWorker.debugConsole.error(
+      options.serviceWorker.debugConsole.error(
         "failed to get a fresh token",
         newTokenData,
       );
       return Promise.reject(new Error("Failed to refresh token"));
     }
-    config.serviceWorker.debugConsole.info(
+    options.serviceWorker.debugConsole.info(
       "got some fresh token data, add token data to session",
       newTokenData,
     );
-    await config.serviceWorker.sessionManager.setToken(
-      config.session.sessionId,
-      config.authClient.id,
+    await options.serviceWorker.sessionManager.setToken(
+      options.session.sessionId,
+      options.authClient.id,
       newTokenData,
     );
 
-    sendTokenRefreshMessage(
-      config.serviceWorker,
-      config.authClient,
+    postTokenRefreshMessage(
+      options.serviceWorker,
+      options.authClient,
       newTokenData,
     );
 
     currentToken = newTokenData.access_token;
   } else {
-    config.serviceWorker.debugConsole.info("try to fetch with token", token);
+    options.serviceWorker.debugConsole.info("try to fetch with token", token);
   }
 
   const response = await fetchWithAuthorizationHeader(
-    config.event.request,
+    options.event.request,
     `${currentToken}`,
   ).catch((e) => e);
 
   if (response.status === 401) {
-    config.serviceWorker.debugConsole.error(
+    options.serviceWorker.debugConsole.error(
       "fetch with authorization header result in 401",
     );
 
     const silentRenew = await postAuthorizationRequiredMessage(
-      config.serviceWorker,
-      config.event,
-      config.authClient,
-      config.session,
+      options.serviceWorker,
+      options.event,
+      options.authClient,
+      options.session,
       true,
     ).catch((e) => e);
     // authorization required message if we don't have a token or if silent renew failed
-    const tokenData = await getTokenFromSessionManager(config);
+    const tokenData = await getTokenFromSessionManager(options);
     if (silentRenew instanceof Error || !tokenData?.access_token) {
       // post authorization required message
       postAuthorizationRequiredMessage(
-        config.serviceWorker,
-        config.event,
-        config.authClient,
-        config.session,
+        options.serviceWorker,
+        options.event,
+        options.authClient,
+        options.session,
       );
       return new Promise(() => {}); // return a pending promise to stop the fetch event
     } else {
       const response = await fetchWithAuthorizationHeader(
-        config.event.request,
+        options.event.request,
         `Bearer ${tokenData.access_token}`,
       ).catch((e) => e);
       if (response.status === 401) {
         postAuthorizationRequiredMessage(
-          config.serviceWorker,
-          config.event,
-          config.authClient,
-          config.session,
+          options.serviceWorker,
+          options.event,
+          options.authClient,
+          options.session,
         );
         return new Promise(() => {});
       }
@@ -269,13 +278,13 @@ async function tryFetch(
     }
   }
   if (response instanceof Error) {
-    config.serviceWorker.debugConsole.error(
+    options.serviceWorker.debugConsole.error(
       "failed to fetch with authorization header",
       response,
     );
     return Promise.reject(response);
   }
-  config.serviceWorker.debugConsole.info(
+  options.serviceWorker.debugConsole.info(
     "response for fetch with authorization header",
     response,
   );
@@ -394,7 +403,7 @@ async function postSilentRenewMessage(
   });
 }
 
-function sendTokenRefreshMessage(
+function postTokenRefreshMessage(
   serviceWorker: AuthServiceWorker,
   authClient: AuthClient,
   tokens: any,

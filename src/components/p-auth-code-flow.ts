@@ -73,7 +73,6 @@ export class AuthCodeFlowElement extends PAuthBaseElement {
   }
 
   async getUserinfo(): Promise<any> {
-
     return new Promise((resolve, reject) => {
       const messageChannel = new MessageChannel();
       messageChannel.port1.onmessage = (event) => {

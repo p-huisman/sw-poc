@@ -2,7 +2,7 @@ import {encodedStringFromObject} from "../../helpers/crypto";
 import {getOpenIdConfiguration} from "../openid-configurations";
 import {AuthServiceWorker, AuthClient, Session} from "../../interfaces";
 
-interface LogoffConfig {
+interface LogoffOptions {
   serviceWorker: AuthServiceWorker;
   authClient: AuthClient;
   session: Session;
@@ -12,30 +12,30 @@ interface LogoffConfig {
 /**
  * Code flow logoff handler
  *
- * @param config LogoffConfig
+ * @param options LogoffOptions
  * @returns Promise<void>
  * @description
  * This function is used to logoff the user from the application.
  * It revokes the tokens and removes the token from the session manager.
  * it also sends a message to the client to redirect to the end session endpoint.
  */
-export default async (config: LogoffConfig): Promise<void> => {
-  const tokenData = await config.serviceWorker.sessionManager.getToken(
-    config.event.data.session,
-    config.authClient.id,
+export default async (options: LogoffOptions): Promise<void> => {
+  const tokenData = await options.serviceWorker.sessionManager.getToken(
+    options.event.data.session,
+    options.authClient.id,
   );
   if (tokenData) {
     const discoverOpenId = await getOpenIdConfiguration(
-      config.serviceWorker,
-      config.authClient.discoveryUrl,
+      options.serviceWorker,
+      options.authClient.discoveryUrl,
     );
     await revokeTokens(
       discoverOpenId.revocation_endpoint,
-      config.authClient.clientId,
+      options.authClient.clientId,
       tokenData,
     );
-    const serviceWorkerClient = await config.serviceWorker.clients.get(
-      config.session.window,
+    const serviceWorkerClient = await options.serviceWorker.clients.get(
+      options.session.window,
     );
     const currentUrl = new URL(serviceWorkerClient.url);
     const params =
@@ -45,34 +45,34 @@ export default async (config: LogoffConfig): Promise<void> => {
           id_token_hint: tokenData.id_token,
           post_logout_redirect_uri:
             currentUrl.origin +
-            config.authClient.callbackPath +
+            options.authClient.callbackPath +
             "?c=" +
-            config.authClient.id +
+            options.authClient.id +
             "#post_end_session_redirect_uri=" +
-            encodeURIComponent(config.event.data.url),
+            encodeURIComponent(options.event.data.url),
         },
         encodeURIComponent,
         "&",
       );
-    await config.serviceWorker.sessionManager.removeToken(
-      config.event.data.session,
-      config.authClient.id,
+    await options.serviceWorker.sessionManager.removeToken(
+      options.event.data.session,
+      options.authClient.id,
     );
     serviceWorkerClient.postMessage({
       type: "end-session",
       location: discoverOpenId.end_session_endpoint + params,
     });
   } else {
-    const allClients = await config.serviceWorker.clients.matchAll({
+    const allClients = await options.serviceWorker.clients.matchAll({
       type: "window",
     });
     const client = allClients.find((client) => client.focused === true);
     const location =
-      config.authClient.callbackPath +
+      options.authClient.callbackPath +
       "?c=" +
-      config.authClient.id +
+      options.authClient.id +
       "#post_end_session_redirect_uri=" +
-      config.event.data.url;
+      options.event.data.url;
     client.postMessage({
       type: "end-session",
       location,
