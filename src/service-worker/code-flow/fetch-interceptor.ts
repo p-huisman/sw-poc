@@ -38,20 +38,15 @@ export default async (options: InterceptFetchOptions): Promise<Response> => {
   let authorizationHeader: string | null = null;
   let response: Response | null = null;
 
-  if (tokenData) {
-    options.serviceWorker.debugConsole.info(
-      "fetch interceptor: got token from session manager",
-    );
-    authorizationHeader = `Bearer ${tokenData.access_token}`;
-  } else {
+  if (!tokenData) {
     // no token but is required for request
     options.serviceWorker.debugConsole.info(
       "fetch interceptor: no token but is required for request",
     );
-
-    // try first with token, if it fails then post authorization required message
+    // try without a token
     const response = await fetchWithAuthorizationHeader(
       options.event.request,
+      null,
     ).catch((e) => e);
     if (response.status !== 401) {
       if (response instanceof Error) {
@@ -63,23 +58,28 @@ export default async (options: InterceptFetchOptions): Promise<Response> => {
       }
       return Promise.resolve(response);
     }
-
+    // do authorization required message without prompt and if it fails do it with prompt
     authorizationHeader = await getAuthorizationHeaderUsingSilentRenew(options);
     if (!authorizationHeader) {
       return new Promise(() => {}); // return a pending promise to stop the fetch event
     }
+  } else {
+    options.serviceWorker.debugConsole.info(
+      "fetch interceptor: got token from session manager",
+    );
+    authorizationHeader = `Bearer ${tokenData.access_token}`;
   }
 
-  // try fetch with token
+  // We got a token maybe expired, try to fetch with it
   options.serviceWorker.debugConsole.info(
     "fetch interceptor: try fetch with token",
   );
   response = await tryFetch(options, authorizationHeader).catch((e) => e);
-  handleFailedFetch(options, authorizationHeader, tokenData, response);
+  handleFetchAttempt(options, authorizationHeader, tokenData, response);
   return response;
 };
 
-async function handleFailedFetch(
+async function handleFetchAttempt(
   options: InterceptFetchOptions,
   authorizationHeader: string,
   tokenData: any,
