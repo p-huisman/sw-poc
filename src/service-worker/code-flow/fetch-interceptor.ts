@@ -1,4 +1,5 @@
 import {
+  decodeToken,
   encodedStringFromObject,
   generateRandomString,
   pkceChallengeFromVerifier,
@@ -64,6 +65,7 @@ export default async (options: InterceptFetchOptions): Promise<Response> => {
       return new Promise(() => {}); // return a pending promise to stop the fetch event
     }
   } else {
+    console.log(decodeToken(tokenData.id_token));
     options.serviceWorker.debugConsole.info(
       "fetch interceptor: got token from session manager",
     );
@@ -315,14 +317,19 @@ async function refreshToken(
   return tokenData;
 }
 
-async function postAuthorizationRequiredMessage(
+export async function postAuthorizationRequiredMessage(
   serviceWorker: AuthServiceWorker,
-  event: FetchEvent,
+  event: FetchEvent | ExtendableMessageEvent,
   oAuthClient: AuthClient,
   session: Session,
   silent = false,
 ): Promise<void | TokenData> {
-  const serviceWorkerClient = await serviceWorker.clients.get(event.clientId);
+  let serviceWorkerClient;
+  if (event instanceof ExtendableMessageEvent) {
+    serviceWorkerClient = event.source as Client;
+  } else {
+    serviceWorkerClient = await serviceWorker.clients.get(event.clientId);
+  }
 
   const discoverOpenId = await getOpenIdConfiguration(
     serviceWorker,

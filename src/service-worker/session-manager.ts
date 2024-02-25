@@ -5,6 +5,16 @@ let sessionManager: SessionManagerClass;
 
 export type SessionManager = SessionManagerClass;
 
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  refresh_token?: string;
+  refresh_token_expires_in?: number;
+  id_token?: string;
+  scope: string;
+}
+
 export const getSessionManager = (
   swGlobalScope: ServiceWorkerGlobalScope,
 ): SessionManager => {
@@ -99,7 +109,10 @@ class SessionManagerClass {
     return null;
   }
 
-  public async getToken(sessionId: string, clientId: string) {
+  public async getToken(
+    sessionId: string,
+    clientId: string,
+  ): Promise<TokenResponse> {
     const tokendata = (await get<TokenData[]>("tokens")) || [];
 
     return tokendata.find(
@@ -107,7 +120,11 @@ class SessionManagerClass {
     )?.tokens;
   }
 
-  public async setToken(sessionId: string, clientId: string, tokendata: any) {
+  public async setToken(
+    sessionId: string,
+    clientId: string,
+    tokendata: TokenResponse,
+  ) {
     const tokens = (await get<TokenData[]>("tokens")) || [];
     const token = tokens.find(
       (token) => token.sessionId === sessionId && token.clientId === clientId,

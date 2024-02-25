@@ -35,3 +35,8 @@ export function generateRandomString(): string {
     "",
   );
 }
+
+export function decodeToken(token: string): any {
+  const parts = token.split(".");
+  return JSON.parse(atob(parts[1]));
+}
