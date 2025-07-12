@@ -7,9 +7,9 @@ export function fetchWithAuthorizationHeader(
     headers.append("Authorization", authorizationHeader);
   }
   if (request.headers) {
-    for (const key of (request.headers as any).keys()) {
-      if (key.toString().toLowerCase() !== "authorization") {
-        headers.append(key, request.headers.get(key));
+    for (const [key, value] of request.headers.entries()) {
+      if (key.toLowerCase() !== "authorization") {
+        headers.append(key, value);
       }
     }
   }
@@ -25,7 +25,7 @@ export function fetchWithAuthorizationHeader(
     referrer,
     referrerPolicy,
     signal,
-  } = request as Request;
+  } = request;
 
   return fetch(request.url, {
     headers,

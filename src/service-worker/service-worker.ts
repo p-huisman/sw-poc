@@ -29,6 +29,12 @@ self.registerPromise = null;
 self.addEventListener("message", async (event: ExtendableMessageEvent) => {
   const eventClient = event.source as WindowClient;
 
+  // Add input validation
+  if (!event.data || typeof event.data.type !== 'string') {
+    console.warn('[SW] Invalid message data received:', event.data);
+    return;
+  }
+
   const updateSessions = async () => {
     if (event.data.session) {
       await getSessionManager(self).updateSessionWindow(
@@ -46,18 +52,32 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
 
     case "userinfo":
       {
+        // Validate required fields and port availability
+        if (!event.ports[0] || !event.data.authClient || !event.data.session) {
+          console.warn('[SW] Invalid userinfo request - missing required fields');
+          return;
+        }
+
         if (event.data.authClient.type === P_AUTH_CODE_FLOW) {
-          const userinfo = await codeFlowUserinfoHandler({
-            serviceWorker: self,
-            authClient: event.data.authClient,
-            session: event.data.session,
-            event,
-          }).catch((e) => e);
-          event.ports[0].postMessage({
-            type: "userinfo",
-            userinfo,
-            error: userinfo instanceof Error ? userinfo : null,
-          });
+          try {
+            const userinfo = await codeFlowUserinfoHandler({
+              serviceWorker: self,
+              authClient: event.data.authClient,
+              session: event.data.session,
+              event,
+            });
+            event.ports[0].postMessage({
+              type: "userinfo",
+              userinfo,
+              error: null,
+            });
+          } catch (error) {
+            event.ports[0].postMessage({
+              type: "userinfo",
+              userinfo: null,
+              error: error instanceof Error ? error : new Error(String(error)),
+            });
+          }
         } else {
           // other auth types
         }
@@ -66,24 +86,46 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
 
     case "register-auth-client":
       {
-        if (self.registerPromise) {
-          await self.registerPromise;
+        // Validate required fields and port availability
+        if (!event.ports[0] || !event.data.authClient || !event.data.session) {
+          console.warn('[SW] Invalid register-auth-client request - missing required fields');
+          return;
         }
-        let resolver: () => void;
-        self.registerPromise = new Promise((resolve) => (resolver = resolve));
-        await updateSessions();
-        const {authClient, session} = event.data;
-        const window = eventClient.id;
-        await self.sessionManager.addAuthClientSession(
-          session,
-          window,
-          authClient,
-        );
-        event.ports[0].postMessage({
-          type: "register-auth-client",
-          success: true,
-        });
-        resolver();
+
+        try {
+          if (self.registerPromise) {
+            await self.registerPromise;
+          }
+          
+          // Use a more robust promise pattern
+          let resolver: () => void;
+          self.registerPromise = new Promise<void>((resolve) => {
+            resolver = resolve;
+          });
+          
+          await updateSessions();
+          const { authClient, session }: { authClient: any; session: string } = event.data;
+          const window = eventClient.id;
+          await self.sessionManager.addAuthClientSession(
+            session,
+            window,
+            authClient,
+          );
+          event.ports[0].postMessage({
+            type: "register-auth-client",
+            success: true,
+          });
+          resolver();
+        } catch (error) {
+          self.debugConsole?.error('Failed to register auth client:', error);
+          event.ports[0].postMessage({
+            type: "register-auth-client",
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          // Reset the register promise on failure
+          self.registerPromise = null;
+        }
       }
       break;
 
@@ -95,12 +137,21 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
 });
 
 self.addEventListener("fetch", async (event: FetchEvent) => {
+  const startTime = performance.now();
   let responseResolve: (value: Response | PromiseLike<Response>) => void;
   let responseReject: (reason?: any) => void;
 
   const responsePromise = new Promise<Response>((resolve, reject) => {
-    responseResolve = resolve;
-    responseReject = reject;
+    responseResolve = (response) => {
+      const duration = performance.now() - startTime;
+      self.debugConsole?.info(`Fetch completed in ${duration.toFixed(2)}ms for ${event.request.url}`);
+      resolve(response);
+    };
+    responseReject = (error) => {
+      const duration = performance.now() - startTime;
+      self.debugConsole?.error(`Fetch failed after ${duration.toFixed(2)}ms for ${event.request.url}:`, error);
+      reject(error);
+    };
   });
 
   event.respondWith(responsePromise);
@@ -112,14 +163,20 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
       self.authorizationCallbacksInProgress[0].authClient.type ===
       P_AUTH_CODE_FLOW
     ) {
-      await authorizationCallbackHandler(
-        self,
-        windowClient,
-        self.authorizationCallbacksInProgress[0],
-      ).catch((e) => e);
-      self.authorizationCallbacksInProgress = [];
+      try {
+        await authorizationCallbackHandler(
+          self,
+          windowClient,
+          self.authorizationCallbacksInProgress[0],
+        );
+      } catch (error) {
+        self.debugConsole?.error('Authorization callback handler failed:', error);
+      } finally {
+        self.authorizationCallbacksInProgress = [];
+      }
     } else {
       // other auth types
+      self.authorizationCallbacksInProgress = [];
     }
   }
 
@@ -138,27 +195,44 @@ self.addEventListener("fetch", async (event: FetchEvent) => {
     matchingAuthClientForRequestUrl &&
     matchingAuthClientForRequestUrl.type === P_AUTH_CODE_FLOW
   ) {
-    const response = await codeFlowFetchInterceptor({
-      event,
-      serviceWorker: self,
-      session,
-      authClient: matchingAuthClientForRequestUrl,
-    }).catch((e) => e);
-    if (response instanceof Error) {
-      responseReject(response);
-    } else {
+    try {
+      const response = await codeFlowFetchInterceptor({
+        event,
+        serviceWorker: self,
+        session,
+        authClient: matchingAuthClientForRequestUrl,
+      });
       responseResolve(response);
+    } catch (error) {
+      responseReject(error);
     }
   } else {
-    fetch(event.request)
-      .then((fetchResponse) => responseResolve(fetchResponse))
-      .catch((e) => responseReject(e));
+    // Add timeout to prevent hanging requests
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    
+    fetch(event.request, { signal: controller.signal })
+      .then((fetchResponse) => {
+        clearTimeout(timeoutId);
+        responseResolve(fetchResponse);
+      })
+      .catch((e) => {
+        clearTimeout(timeoutId);
+        responseReject(e);
+      });
   }
 });
 
-async function getWindowClient(id: string): Promise<WindowClient> {
-  const clients = await self.clients.matchAll();
-  return (await clients.find((client) => client?.id === id)) as WindowClient;
+async function getWindowClient(id: string | null): Promise<WindowClient | null> {
+  if (!id) return null;
+  
+  try {
+    const clients = await self.clients.matchAll();
+    return clients.find((client) => client?.id === id) as WindowClient || null;
+  } catch (error) {
+    self.debugConsole?.error('Failed to get window client:', error);
+    return null;
+  }
 }
 
 async function handleLogoff(event: ExtendableMessageEvent) {
@@ -179,7 +253,18 @@ async function handleLogoff(event: ExtendableMessageEvent) {
   } else {
     const allClients = await self.clients.matchAll({type: "window"});
     const client = allClients.find((client) => client.focused === true);
-    event.data.client.callbackPath;
+    
+    if (!client) {
+      console.warn('[SW] No focused client found for end-session redirect');
+      return;
+    }
+
+    // Remove unused line and add proper validation
+    if (!event.data.client?.callbackPath || !event.data.url) {
+      console.warn('[SW] Missing required data for end-session redirect');
+      return;
+    }
+
     const location =
       event.data.client.callbackPath +
       "?c=" +
