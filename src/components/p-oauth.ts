@@ -29,7 +29,10 @@ export class POauthElement extends HTMLElement {
       });
   }
 
+  static SW_ACTIVE_TIMEOUT = 10000; 
+
   #hasMessageHandler: boolean = false;
+
   #messageHandler = (event: MessageEvent) => {
     if (event.data.type === "end-session") {
       if (event.data.replace) {
@@ -41,13 +44,14 @@ export class POauthElement extends HTMLElement {
   };
 
   serviceWorkerRegistration: ServiceWorkerRegistration;
-
+  
+  
   get #serviceWorkerRegistrationActive(): Promise<void> {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         clearInterval(interval);
         reject(new Error("Service worker did not become active in time."));
-      }, 10000);
+      }, POauthElement.SW_ACTIVE_TIMEOUT);
       const interval = setInterval(() => {
         if (this.serviceWorkerRegistration?.active) {
           clearTimeout(timeout);
@@ -58,7 +62,7 @@ export class POauthElement extends HTMLElement {
     });
   }
 
-  #initialAuthClients: HTMLElement[] = undefined;
+  #initialAuthClients: HTMLElement[] = [];
 
   swInstalled: Promise<void>;
 
@@ -141,11 +145,9 @@ export class POauthElement extends HTMLElement {
   };
 
   connectedCallback(): void {
-    if(!this.#initialAuthClients) {
-      this.#initialAuthClients = Array.from(this.childNodes).filter(
-        (n) => n instanceof HTMLElement,
-      ) as HTMLElement[];
-    }
+    this.#initialAuthClients = Array.from(this.childNodes).filter(
+      (n) => n instanceof HTMLElement,
+    ) as HTMLElement[];
     if (!this.#hasMessageHandler) {
       this.swInstalled.then(() => {
         navigator.serviceWorker.addEventListener("message", this.#messageHandler);
@@ -227,11 +229,13 @@ export class POauthElement extends HTMLElement {
     const auth: PAuthBaseElement = id
       ? this.querySelector("#" + id)
       : (this.firstElementChild as PAuthBaseElement);
-    // todo: wait for custom element to be defined
     let userInfo = null;
     try {
       userInfo = await auth.getUserinfo();
     } catch (e) {
+      if(this.hasAttribute("debug")) {
+        console.error("Error getting user info:", e);
+      }
       userInfo = null;
     }
     return userInfo !== null;
