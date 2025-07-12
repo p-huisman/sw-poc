@@ -9,38 +9,48 @@ import {PAuthBaseElement} from "./p-auth-base";
 startFetchQueuing();
 
 export class POauthElement extends HTMLElement {
-  constructor(public serviceWorkerRegistration: ServiceWorkerRegistration) {
+  constructor() {
     super();
     let swInstallResolver: () => void;
-    const promise = new Promise<void>((resolve) => {
+    let swInstallRejecter: (reason?: any) => void;
+    const promise = new Promise<void>((resolve, reject) => {
       swInstallResolver = resolve;
+      swInstallRejecter = reject;
     });
     this.swInstalled = promise;
-    installServiceWorker().then((sw) => {
-      this.serviceWorkerRegistration = sw;
-      swInstallResolver();
-    });
-    this.#initialAuthClients = Array.from(this.childNodes).filter(
-      (n) => n instanceof HTMLElement,
-    ) as HTMLElement[];
-    navigator.serviceWorker.addEventListener(
-      "message",
-      (event: MessageEventInit) => {
-        if (event.data.type === "end-session") {
-          if (event.data.replace) {
-            document.location.replace(event.data.location);
-          } else {
-            document.location.href = event.data.location;
-          }
-        }
-      },
-    );
+    installServiceWorker()
+      .then((sw) => {
+        this.serviceWorkerRegistration = sw;
+        swInstallResolver();
+      })
+      .catch((error) => {
+        console.error('Failed to install service worker:', error);
+        swInstallRejecter(error);
+      });
   }
 
+  #hasMessageHandler: boolean = false;
+  #messageHandler = (event: MessageEvent) => {
+    if (event.data.type === "end-session") {
+      if (event.data.replace) {
+        document.location.replace(event.data.location);
+      } else {
+        document.location.href = event.data.location;
+      }
+    }
+  };
+
+  serviceWorkerRegistration: ServiceWorkerRegistration;
+
   get #serviceWorkerRegistrationActive(): Promise<void> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        clearInterval(interval);
+        reject(new Error("Service worker did not become active in time."));
+      }, 10000);
       const interval = setInterval(() => {
         if (this.serviceWorkerRegistration?.active) {
+          clearTimeout(timeout);
           clearInterval(interval);
           resolve();
         }
@@ -48,7 +58,7 @@ export class POauthElement extends HTMLElement {
     });
   }
 
-  #initialAuthClients: HTMLElement[] = [];
+  #initialAuthClients: HTMLElement[] = undefined;
 
   swInstalled: Promise<void>;
 
@@ -131,6 +141,18 @@ export class POauthElement extends HTMLElement {
   };
 
   connectedCallback(): void {
+    if(!this.#initialAuthClients) {
+      this.#initialAuthClients = Array.from(this.childNodes).filter(
+        (n) => n instanceof HTMLElement,
+      ) as HTMLElement[];
+    }
+    if (!this.#hasMessageHandler) {
+      this.swInstalled.then(() => {
+        navigator.serviceWorker.addEventListener("message", this.#messageHandler);
+        this.#hasMessageHandler = true;
+      });
+    };
+    
     if (document.location.hash.indexOf("post_end_session_redirect_uri=") > 0) {
       const hasLogoffAll = sessionStorage.getItem(AUTH_LOGOFF_ALL);
       if (hasLogoffAll) {
@@ -160,6 +182,13 @@ export class POauthElement extends HTMLElement {
     }
   }
 
+  disconnectedCallback(): void {
+    if (this.#hasMessageHandler){
+      navigator.serviceWorker.removeEventListener("message", this.#messageHandler);
+      this.#hasMessageHandler = false;
+    }
+  }
+
   logoff = async (url: string, client?: HTMLElement): Promise<void> => {
     if (!client) {
       let allClientIds =
@@ -175,7 +204,7 @@ export class POauthElement extends HTMLElement {
 
       const firstClientId = allClientIds.shift();
       const firstElement = this.querySelector<HTMLElement>(`#${firstClientId}`);
-      if ((firstElement as any)?.logoff) {
+      if (firstElement && 'logoff' in firstElement && typeof (firstElement as any).logoff === 'function') {
         // logoff without 2nd param (url)
         await (firstElement as any).logoff();
       }
