@@ -35,13 +35,11 @@
         client-id="particulier"
         scope="openid profile offline_access"
         callback-path="/demo/callback-code-flow.html"
-        url-pattern="(https://services-kvta.team_7.o.pggm-intra.intern/|ttps://app-pggm-pggm-onewelcome-deelnemers-pfzw-tstsvr-o.pggm-ase-team7-shared-ase-o.appserviceenvironment.net/connect/userinfo)"
-        storage="session"
-        storage-key="p-auth-token"
+        url-pattern="\/\/services\.team_7\.o\.pggm-intra\.intern\/MijnOmgeving"
       ></p-auth-code-flow>
     </p-oauth>
 
-    
+
     <div class="clients">
       <div>
         <button id="Fetch1Button">Fetch DuendeDemo</button>
@@ -59,7 +57,7 @@
     </div>
     <hr />
 
-    
+
     <div id="output"></div>
     <script>
       document.getElementById("Fetch1Button").addEventListener("click", () => {
@@ -67,7 +65,7 @@
       });
 
       document.getElementById("Fetch2Button").addEventListener("click", () => {
-        doFetch("https://services-kvta.team_7.o.pggm-intra.intern/MijnOmgeving_vnext/particulier/personalia");
+        doFetch("https://services.team_7.o.pggm-intra.intern/MijnOmgeving_vnext/particulier/personalia");
       });
 
       document.getElementById("Logoff1Button").addEventListener("click", () => {
