@@ -19,21 +19,21 @@
   "author": "Peter Huisman",
   "license": "UNLICENSED",
   "devDependencies": {
-    "@typescript-eslint/eslint-plugin": "^6.2.1",
-    "@typescript-eslint/parser": "^6.2.1",
+    "@typescript-eslint/eslint-plugin": "^8.36.0",
+    "@typescript-eslint/parser": "^8.36.0",
 
-    "body-parser": "^1.20.2",
-    "concurrently": "^8.2.2",
+    "body-parser": "^2.2.0",
+    "concurrently": "^9.2.0",
     "cross-env": "^7.0.3",
-    "esbuild": "^0.20.0",
-    "express": "^4.18.2",
-    "eslint": "^8.46.0",
-    "eslint-config-prettier": "^8.10.0",
-    "eslint-plugin-prettier": "^5.0.0",
-    "eslint-plugin-sonarjs": "^0.20.0",
-    "idb-keyval": "^6.2.1",
-    "prettier": "^3.0.1",
+    "esbuild": "^0.25.6",
+    "express": "^5.1.0",
+    "eslint": "^9.31.0",
+    "eslint-config-prettier": "^10.1.5",
+    "eslint-plugin-prettier": "^5.5.1",
+    "eslint-plugin-sonarjs": "^3.0.4",
+    "idb-keyval": "^6.2.2",
+    "prettier": "^3.6.2",
     "serve-index": "^1.9.1",
-    "typescript": "^5.1.6"
+    "typescript": "^5.8.3"
   }
 }
