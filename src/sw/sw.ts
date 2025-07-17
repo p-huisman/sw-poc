@@ -44,14 +44,6 @@ self.windowManager = ClientManager.getInstance(self);
  */
 
 self.addEventListener("fetch", (event: FetchEvent) => {
-  if (event.request.method === "GET") {
-    if (
-      event.request.mode === "navigate" &&
-      event.request.headers.get("accept")?.includes("text/html")
-    ) {
-      console.log("Navigating", event.request);
-    }
-  }
   const windowId = event.clientId;
   event.respondWith(doFetch(event, self.windowManager, windowId));
 });
