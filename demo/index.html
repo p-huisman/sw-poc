@@ -1,130 +1,110 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Document</title>
-    <style>
-      .clients {
-        display: flex;
-        gap: 2em;
-        /* justify-content: space-between; */
-      }
-      pre {
-        border-bottom: 1px solid gray;
-        padding-bottom: 1em;
-      }
-    </style>
-  </head>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>P-Auth demo</title>
+</head>
+<body>
+  
+  <h1>P-Auth Demo</h1>
+  <p>This is a demo page for the P-Auth component.</p>
 
-  <body>
-    <p-oauth no-debug>
-      <!-- offline_access is needed for refresh tokens-->
-      <p-auth-code-flow
-        id="DuendeDemo"
-        discovery-url="https://demo.duendesoftware.com/"
-        client-id="interactive.public.short"
-        scope="openid email profile offline_access"
-        callback-path="/demo/callback-code-flow.html"
-        url-pattern="(/api/data-sample-request|/demo.duendesoftware.com/connect/userinfo|demo.duendesoftware.com/api/)"
-      >
-      </p-auth-code-flow>
-      <p-auth-code-flow
-        id="PfzwDemo"
-        discovery-url="https://app-pggm-pggm-onewelcome-deelnemers-pfzw-tstsvr-o.pggm-ase-team7-shared-ase-o.appserviceenvironment.net/"
-        client-id="particulier"
-        scope="openid profile offline_access"
-        callback-path="/demo/callback-code-flow.html"
-        url-pattern="(https://services-kvta.team_7.o.pggm-intra.intern/|ttps://app-pggm-pggm-onewelcome-deelnemers-pfzw-tstsvr-o.pggm-ase-team7-shared-ase-o.appserviceenvironment.net/connect/userinfo)"
-        storage="session"
-        storage-key="p-auth-token"
-      ></p-auth-code-flow>
-    </p-oauth>
-
+  <p-auth sw-url="/dist/sw.js" sw-scope="/">
     
-    <div class="clients">
-      <div>
-        <button id="Fetch1Button">Fetch DuendeDemo</button>
-        <button id="Logoff1Button">Logoff DuendeDemo</button>
-        <button data-id="DuendeDemo" id="GetUserinfo1Button">Get userinfo</button>
-      </div>
-      <div>
-        <button id="Fetch2Button">Fetch PfzwDemo</button>
-        <button id="Logoff2Button">Logoff PfzwDemo</button>
-        <button data-id="PfzwDemo" id="GetUserinfo2Button">Get userinfo</button>
-      </div>
-      <div>
-        <button id="LogoffAllButton">Logoff All</button>
-      </div>
-    </div>
-    <hr />
+    <p-code-flow 
+      discovery-url="https://demo.duendesoftware.com/"
+      client-id="interactive.public.short"
+      scope="openid email profile offline_access"
+      callback-path="/demo/callback.html"
+      url-pattern="(/api/data-sample-request|/demo.duendesoftware.com/connect/userinfo|demo.duendesoftware.com/api/)"
+    ></p-code-flow>
+    <p-code-flow 
+      discovery-url="https://app-pggm-pggm-onewelcome-deelnemers-pfzw-tstsvr-o.pggm-ase-team7-shared-ase-o.appserviceenvironment.net/.well-known/openid-configuration"
+      client-id="particulier"
+      scope="openid profile"
+      callback-path="/particulieren/mijnpfzw/callback.html"
+      url-pattern="(\/\/services\.team_7\.o\.pggm-intra\.intern\/MijnOmgeving|apiservice.o.pfzw.nl|api.apim.o.pggm-cloud.nl)"
+    ></p-code-flow>
 
+  </p-auth>
+  
+
+  <button id="fetchButton">Do fetch</button> 
+  <button id="logoutButtonDuende">Logout interactive.public.short</button> 
+  <button id="logoutButton">Logout particulier</button>
+  <script src="../dist/p-auth.js" type="module"></script>
+
+  <script defer>
+
+    const url1 = "https://demo.duendesoftware.com/api/test";
+    const url2 = 'https://services.team_7.o.pggm-intra.intern/MijnOmgeving_vnext/particulier/personalia'
+
+
+    function logoutDuende() {
+      const codeFlow = document.querySelector('p-code-flow[client-id="interactive.public.short"]');
+      if (codeFlow) {
+        codeFlow.logout("/");
+      } else {
+        console.error('Code flow for interactive.public.short not found');
+      }
+    }
+
+    function logoutParticulier() {
+      const codeFlow = document.querySelector('p-code-flow[client-id="particulier"]');
+      if (codeFlow) {
+        codeFlow.logout("/");
+      } else {
+        console.error('Code flow for particulier not found');
+      }
+    }
+
+    document.getElementById('logoutButtonDuende').addEventListener('click', logoutDuende);
+    document.getElementById('logoutButton').addEventListener('click', logoutParticulier);
     
-    <div id="output"></div>
-    <script>
-      document.getElementById("Fetch1Button").addEventListener("click", () => {
-        doFetch("https://demo.duendesoftware.com/connect/userinfo");
-      });
-
-      document.getElementById("Fetch2Button").addEventListener("click", () => {
-        doFetch("https://services-kvta.team_7.o.pggm-intra.intern/MijnOmgeving_vnext/particulier/personalia");
-      });
-
-      document.getElementById("Logoff1Button").addEventListener("click", () => {
-        document.getElementById("DuendeDemo").logoff("/");
-      })
-
-      document.getElementById("Logoff2Button").addEventListener("click", () => {
-        document.getElementById("PfzwDemo").logoff("/");
-      })
-
-      document.getElementById("LogoffAllButton").addEventListener("click", () => {
-        document.querySelector("p-oauth").logoff("/");
-      })
-
-      document.getElementById("GetUserinfo1Button").addEventListener("click", (e) => {
-        console.log(e.target.dataset);
-        getUserinfo(e.target.dataset.id)
-      })
-      document.getElementById("GetUserinfo2Button").addEventListener("click", (e) => {
-        console.log(e.target.dataset);
-        getUserinfo(e.target.dataset.id)
-      })
-
-      function doFetch(url) {
-        fetch(url).then((response) => {
+    document.getElementById('fetchButton').addEventListener('click', () => {
+      document.getElementById('output1').textContent = "";   
+      fetch(url1)
+        .then(response => {
           if (!response.ok) {
-            prependOutput("Network response was not ok");
-          } else {
-            response.json().then((data) => {
-              prependOutput(url, JSON.stringify(data, null, 2));
-            });
+            throw new Error(`HTTP error! status: ${response.status}`);
           }
+          return response.json();
+        })
+        .then(data => {
+          document.getElementById('output1').textContent = JSON.stringify(data, null, 2);
+        })
+        .catch(error => {
+          console.error('Error fetching data:', error);
         });
-      }
+    });
+    window.addEventListener("DOMContentLoaded", () => {
+      
+    document.getElementById('output1').textContent = "";   
+    document.getElementById('output2').textContent = "";
 
-      function prependOutput(title, text) {
-        const pre = document.createElement("pre");
-        pre.innerHTML = `<h3>${title}</h3>`  + "\r\n" + text;
-        document.getElementById("output").prepend(pre);
-      }
+    document.querySelector("p-auth").addEventListener("authInitialised", () => {
+      console.log("P-Auth initialized");
+    });
 
-      function getUserinfo(id) {
-        const el = document.getElementById(id);
-        console.log(el);
-        el.getUserinfo().then((data) => {
-          prependOutput("Userinfo", JSON.stringify(data, null, 2));
+     fetch(url2)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          } 
+          return response.json();
+        })
+        .then(data => {
+          document.getElementById('output2').textContent = JSON.stringify(data, null, 2);
+          // console.log('Initial fetch data:', data);
+        })
+        .catch(error => {
+          console.error('Error during initial fetch:', error);
         });
-      }
+      });
 
-      // dom conent loaded
-      // document.addEventListener("DOMContentLoaded", function () {
-      //   doFetch(
-      //     "https://services-kvta.team_7.o.pggm-intra.intern/MijnOmgeving_vnext/particulier/personalia"
-      //   );
-      // });
     </script>
-
-    <script defer src="../dist/p-oauth.js"></script>
-  </body>
+    <pre id="output1"></pre>
+    <pre id="output2"></pre>
+</body>
 </html>

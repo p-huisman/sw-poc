@@ -1,0 +1,24 @@
+{
+  "entryPoints": [
+    "./src/p-auth.ts",
+    "./src/sw/sw.ts"
+  ],
+  "testEntryPoints": [
+    "./src/p-auth.spec.ts"
+  ],
+  "entryNames": "[name]",
+  "format": "esm",
+  "devServer" : {
+    "port": 9090,
+    "host": "localhost",
+    "api": "./api/api.mjs"
+  },
+  "nodeModulesPath": "../../node_modules",
+  "dist": "./dist",
+  "target": "es6",
+  "testFiles": [
+    "/node_modules/p-elements-core/dist/p-elements-core.js"
+  ],
+  "browsers": ["chromium"],
+  "chromiumPath": "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+}

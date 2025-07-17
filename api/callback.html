@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>P-Auth demo</title>
+    </head>
+    <body>
+        <p-auth sw-url="/dist/sw.js" sw-scope="/">
+            <p-code-flow 
+            discovery-url="https://demo.duendesoftware.com/"
+            client-id="interactive.public.short"
+            scope="openid email profile offline_access"
+            callback-path="/demo/callback.html"
+            url-pattern="(/api/data-sample-request|/demo.duendesoftware.com/connect/userinfo|demo.duendesoftware.com/api/)"
+            ></p-code-flow>
+            <p-code-flow 
+            discovery-url="https://app-pggm-pggm-onewelcome-deelnemers-pfzw-tstsvr-o.pggm-ase-team7-shared-ase-o.appserviceenvironment.net/.well-known/openid-configuration"
+            client-id="particulier"
+            scope="openid profile"
+            callback-path="/particulieren/mijnpfzw/callback.html"
+            url-pattern="(\/\/services\.team_7\.o\.pggm-intra\.intern\/MijnOmgeving|apiservice.o.pfzw.nl|api.apim.o.pggm-cloud.nl)"
+            ></p-code-flow>
+        </p-auth>
+        <script src="/dist/p-auth.js" type="module"></script>
+
+    </body>
+</html>

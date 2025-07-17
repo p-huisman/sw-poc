@@ -1,39 +1,32 @@
 {
-  "name": "p-oauth",
+  "name": "p-auth",
   "version": "1.0.0",
-  "description": "OAuth2 client web component",
-  "main": "dist/p-oauth.js",
+  "description": "OAuth 2.0 / OpenID Connect authentication library built with Web Components and service workers for seamless token management and request interception.",
+  "main": "dist/p-auth.js",
   "scripts": {
-    "start": "npm run build && npm run serve",
-    "develop:js": "esbuild src/components/p-oauth.ts --bundle --watch --sourcemap --target=es6 --outfile=dist/p-oauth.js",
-    "develop:sw": "esbuild src/service-worker/service-worker.ts --bundle --watch --sourcemap --target=es6  --outfile=dist/p-oauth-sw.js",
-    "develop": "concurrently \"npm:develop:js\" \"npm:develop:sw\" \"npm:serve\"",
-    "build:js": "esbuild src/components/p-oauth.ts --bundle --minify --target=es6  --outfile=dist/p-oauth.js",
-    "build:sw": "esbuild src/service-worker/service-worker.ts --bundle --minify --target=es6 --outfile=dist/p-oauth-sw.js",
-    "build:types": "tsc -d -t ES6 --moduleResolution node --declarationDir types --emitDeclarationOnly",
-    "build": "concurrently \"npm:build:js\" \"npm:build:sw\" \"npm:build:types\"",
-    "serve": "node scripts/server.js",
-    "lint": "eslint --fix --ext ts --ext tsx ./src",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "p-build --action build",
+    "develop": "p-build --action develop",
+    "test": "p-build --action test",
+    "testdevelop": "p-build --action testdevelop"
   },
-  "author": "Peter Huisman",
-  "license": "UNLICENSED",
   "devDependencies": {
-    "@typescript-eslint/eslint-plugin": "^8.36.0",
-    "@typescript-eslint/parser": "^8.36.0",
-
-    "body-parser": "^2.2.0",
-    "concurrently": "^9.2.0",
-    "cross-env": "^7.0.3",
-    "esbuild": "^0.25.6",
-    "express": "^5.1.0",
-    "eslint": "^9.31.0",
-    "eslint-config-prettier": "^10.1.5",
-    "eslint-plugin-prettier": "^5.5.1",
-    "eslint-plugin-sonarjs": "^3.0.4",
+    "concurrently": "^9.1.2",
     "idb-keyval": "^6.2.2",
-    "prettier": "^3.6.2",
-    "serve-index": "^1.9.1",
-    "typescript": "^5.8.3"
-  }
+    "jasmine": "^5.6.0",
+    "p-element-build": "^1.0.8"
+  },
+  "keywords": [
+    "oauth",
+    "openid-connect",
+    "web-components",
+    "service-worker",
+    "authentication",
+    "access-token",
+    "refresh-token",
+    "token-management",
+    "request-interception"
+  ],
+  "author": "P.A. Huisman <huisman.peter@gmail.com>",
+  "license": "ISC",
+  "type": "module"
 }

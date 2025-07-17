@@ -31,6 +31,12 @@ export class AuthFlowIFrameWrapper {
     if (!url) {
       this.error();
     } else {
+      this.frame.addEventListener("load", (e) => {
+        const networkErrorOccurred = !this.frame.contentDocument;
+        if (networkErrorOccurred) {
+          this.reject(new Error("Failed to load iframe"));
+        }
+      }, { once: true });
       this.timer = window.setTimeout(this.timeoutHandler, this.timeout);
       this.frame.src = url;
     }
