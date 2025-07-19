@@ -43,9 +43,10 @@ self.windowManager = ClientManager.getInstance(self);
  * @param event - The fetch event containing request details
  */
 
-self.addEventListener("fetch", (event: FetchEvent) => {
+self.addEventListener("fetch", async (event: FetchEvent) => {
   const windowId = event.clientId;
-  event.respondWith(doFetch(event, self.windowManager, windowId));
+  const response = doFetch(event, self.windowManager, windowId);
+  event.respondWith(response);
 });
 
 /**

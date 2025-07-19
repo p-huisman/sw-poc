@@ -51,6 +51,10 @@ export async function doFetch(
     
     // Attempt the authenticated request
     const result = await  fetch(modifiedRequest);
+    if (!result.ok && result.status !== 401) {
+      // If the response is not OK and not a 401, return the error response
+      return result;
+    }
     
     // Handle 401 Unauthorized response - token may be expired
     if (result.status === 401) {
@@ -72,7 +76,6 @@ export async function doFetch(
     return result;
   }
 
-  // If no matching client is found, fallback to the default fetch behavior
   return fetch(event.request);
 }
 
