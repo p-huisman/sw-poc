@@ -8,7 +8,7 @@
   ],
   "entryNames": "[name]",
   "format": "esm",
-  "devServer" : {
+  "devServer": {
     "port": 9090,
     "host": "localhost",
     "api": "./api/api.mjs"
@@ -19,6 +19,7 @@
   "testFiles": [
     "/node_modules/p-elements-core/dist/p-elements-core.js"
   ],
-  "browsers": ["chromium"],
-  "chromiumPath": "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+  "browsers": [
+    "chromium"
+  ]
 }

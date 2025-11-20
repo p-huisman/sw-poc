@@ -1,10 +1,10 @@
 import { PAuthClient } from "../interfaces";
-import { PAUthElement } from "./p-auth";
+import { PAuthElement } from "./p-auth";
 
 
 export class PCodeFlowElement extends HTMLElement implements PAuthClient {
-  
-  #authElement: PAUthElement | null = null;
+
+  #authElement: PAuthElement | null = null;
 
 
   get clientId() {
@@ -21,12 +21,12 @@ export class PCodeFlowElement extends HTMLElement implements PAuthClient {
 
   get callbackPath() {
     return this.getAttribute("callback-path") || '';
-  } 
+  }
 
   get urlPattern() {
     return this.getAttribute("url-pattern") || '';
   }
-  
+
   set initialised(value: boolean) {
     if (value) {
       this.dataset.initialised = "true";
@@ -56,13 +56,13 @@ export class PCodeFlowElement extends HTMLElement implements PAuthClient {
   }
 
   connectedCallback() {
-    this.#authElement = this.closest('p-auth') as PAUthElement;
+    this.#authElement = this.closest('p-auth') as PAuthElement;
     if (!this.#authElement) {
       console.error('PCodeFlowElement must be a child of a p-auth element');
       return;
     }
     this.#authElement.registerAuthClient(this);
   }
-} 
+}
 
 customElements.define('p-code-flow', PCodeFlowElement);

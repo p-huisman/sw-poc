@@ -28,7 +28,7 @@ startFetchQueuing();
  * </p-auth>
  * ```
  */
-export class PAUthElement extends HTMLElement {
+export class PAuthElement extends HTMLElement {
   /**
    * Creates a new PAUthElement instance.
    * Initializes the service worker promise and begins service worker registration.
@@ -91,7 +91,7 @@ export class PAUthElement extends HTMLElement {
    */
   #clientRegistered(event: MessageEvent) {
     const clientId = event.data.clientId;
-    
+
     // Find all auth client elements that are children of this element
     const authClients = Array.from(this.children).filter(
       (node): node is PAuthClient => "clientId" in node && "initialised" in node
@@ -110,10 +110,10 @@ export class PAUthElement extends HTMLElement {
       const verifier = sessionStorage.getItem("p-oauth-verifier");
       const isAuthorizeCallback = document.location.hash.includes("code=") && verifier;
       const isAuthorizeCallbackError = document.location.hash.includes("error=") && verifier;
-      
+
       // Clean up the verifier from storage
       sessionStorage.removeItem("p-oauth-verifier");
-      
+
       // If this is an authorization callback, process it
       if (isAuthorizeCallback && verifier) {
         const result = this.#getAuthoriseCallbackResult();
@@ -152,11 +152,11 @@ export class PAUthElement extends HTMLElement {
       console.warn("[p-auth] Authorization already in progress");
       return;
     }
-    
+
     // Generate PKCE verifier and store it for the callback
     const verifier = generateRandomString();
     sessionStorage.setItem("p-oauth-verifier", verifier);
-    
+
     // Generate the PKCE challenge from the verifier
     pkceChallengeFromVerifier(verifier).then((codeChallenge) => {
       // Build the authorization request parameters
@@ -177,7 +177,7 @@ export class PAUthElement extends HTMLElement {
           url: document.location.href,
         }),
       };
-      
+
       // Construct the authorization URL and redirect
       const location =
         event.data.url +
@@ -250,24 +250,24 @@ export class PAUthElement extends HTMLElement {
    */
   #getAuthoriseCallbackResult(): Record<string, string> {
     let queryString = "";
-    
+
     // Handle OAuth responses that come via hash fragment (most common)
     if (document.location.search.length === 0 && document.location.hash.length > 0) {
       queryString = document.location.hash.substring(1);
       if (queryString.indexOf("?") > -1) {
         queryString = queryString.split("?")[1];
       }
-    } 
+    }
     // Handle OAuth responses that come via query string
     else if (document.location.search.length > 0 && document.location.hash.length === 0) {
       queryString = document.location.search.substring(1);
     }
-    
+
     // Parse the query string into an object with proper error handling
     if (!queryString) {
       return {};
     }
-    
+
     return queryString.split("&")
       .filter(item => item.includes("=")) // Filter out malformed parameters
       .reduce((result: Record<string, string>, item) => {
@@ -279,7 +279,7 @@ export class PAUthElement extends HTMLElement {
       }, {} as Record<string, string>);
   }
 
-  
+
 
   /**
    * Logs off the current user by sending a logout request to the service worker.
@@ -311,10 +311,10 @@ export class PAUthElement extends HTMLElement {
           console.error("[p-auth] Invalid post_end_session_redirect_uri format");
           return;
         }
-        
+
         const redirect = decodeURIComponent(hashParts[1]);
         const redirectUrl = new URL(redirect, window.location.origin);
-        
+
         // Security check: only allow same-origin redirects
         if (redirectUrl.origin === window.location.origin) {
           // Prevent redirect loops by cleaning the hash
@@ -402,7 +402,7 @@ export class PAUthElement extends HTMLElement {
     });
   }
 
-  
+
 
   /**
    * Registers an authentication client with the service worker.
@@ -437,7 +437,7 @@ export class PAUthElement extends HTMLElement {
       if (!client.scope) {
         throw new Error("Client must have a valid scope");
       }
-      
+
       if (!client.urlPattern) {
         throw new Error("Client must have a valid urlPattern");
       }
@@ -472,4 +472,4 @@ export class PAUthElement extends HTMLElement {
  * 
  * @see https://developer.mozilla.org/en-US/docs/Web/API/CustomElementRegistry/define
  */
-customElements.define("p-auth", PAUthElement);
+customElements.define("p-auth", PAuthElement);
