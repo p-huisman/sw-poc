@@ -1,6 +1,6 @@
 import { get, delMany, keys, set } from "idb-keyval";
 import { getOpenIdConfiguration } from "./openid-configurations";
-import { OIDCConfiguration, TokenData, WindowClientRecord } from "../interfaces";
+import { OIDCConfiguration, PAuthMessage, TokenData, WindowClientRecord } from "../interfaces";
 
 
 /**
@@ -15,9 +15,12 @@ export class ClientManager {
 
   /** Prefix for token storage keys in IndexedDB */
   private readonly TOKEN_STORE_PREFIX = 'token_';
-  
-  /** Timeout for silent renewal operations (30 seconds) */
-  private readonly SILENT_RENEWAL_TIMEOUT = 30000;
+
+  /** Skew allowance when checking token expiration (30 seconds) */
+  private readonly EXPIRY_SKEW_MS = 30000;
+
+  /** In-memory cache of client records per window, avoiding IndexedDB reads on every intercepted request */
+  private clientCache = new Map<string, WindowClientRecord[]>();
 
   private constructor(private sw: ServiceWorkerGlobalScope) {}
 
@@ -53,14 +56,21 @@ export class ClientManager {
     const result = await set(`${client.windowId} ${client.clientId}`, {
       ...client,
     }).catch((error) => error);
-    
+
     if (result instanceof Error) {
       console.error(
-        `[WindowManager] Failed to register client ${client.clientId} for window ${client.windowId}:`,
+        `[ClientManager] Failed to register client ${client.clientId} for window ${client.windowId}:`,
         result
       );
       return Promise.reject(result);
     }
+
+    // Update the in-memory cache (write-through)
+    const cachedClients = this.clientCache.get(client.windowId) ?? [];
+    this.clientCache.set(client.windowId, [
+      ...cachedClients.filter((c) => c.clientId !== client.clientId),
+      client,
+    ]);
 
     // Clean up stale client registrations
     await this.cleanupStaleClients(allWindowIds);
@@ -73,9 +83,16 @@ export class ClientManager {
    * @returns Array of client records for the specified window
    */
   async getClientsByWindowId(windowId: string): Promise<WindowClientRecord[]> {
+    // Serve from the in-memory cache when possible (hot path: called for
+    // every intercepted fetch request)
+    const cachedClients = this.clientCache.get(windowId);
+    if (cachedClients) {
+      return cachedClients;
+    }
+
     const clients: WindowClientRecord[] = [];
     const allRegisteredClients = await keys().catch((): string[] => []);
-    
+
     for (const key of allRegisteredClients) {
       const [id] = key.toString().split(" ", 2);
       if (id === windowId) {
@@ -85,7 +102,8 @@ export class ClientManager {
         }
       }
     }
-    
+
+    this.clientCache.set(windowId, clients);
     return clients;
   }
 
@@ -106,10 +124,17 @@ export class ClientManager {
         toBeRemoved.push(key as string);
       }
     });
-    
+
+    // Purge cached records for windows that are no longer active
+    for (const cachedWindowId of this.clientCache.keys()) {
+      if (!activeWindowIds.includes(cachedWindowId)) {
+        this.clientCache.delete(cachedWindowId);
+      }
+    }
+
     if (toBeRemoved.length > 0) {
       delMany(toBeRemoved).catch((e) =>
-        console.error(`[WindowManager] Failed to remove stale clients:`, e)
+        console.error(`[ClientManager] Failed to remove stale clients:`, e)
       );
     }
   }
@@ -118,8 +143,10 @@ export class ClientManager {
   // TOKEN MANAGEMENT METHODS
   // ============================================================================
   /**
-   * Stores OAuth tokens in IndexedDB with automatic expiration calculation
-   * 
+   * Stores OAuth tokens in IndexedDB with automatic expiration calculation.
+   * Computes the absolute `expires_at` timestamp from `expires_in` when the
+   * provider supplies it.
+   *
    * @param clientId - OAuth client identifier
    * @param tokenData - Token data to store
    * @throws {Error} If token storage fails
@@ -128,15 +155,36 @@ export class ClientManager {
     const tokenKey = `${this.TOKEN_STORE_PREFIX}${clientId}`;
     await set(tokenKey, {
       ...tokenData,
+      // Per RFC 6749 section 5.1, expires_in is relative to the time the
+      // token response was generated (i.e. approximately now)
+      expires_at: tokenData.expires_in
+        ? Date.now() + tokenData.expires_in * 1000
+        : tokenData.expires_at,
     });
   }
 
   /**
-   * Retrieves OAuth tokens from IndexedDB with automatic expiration checking
-   * Automatically removes expired tokens
-   * 
+   * Checks whether the access token is expired. A small skew allowance is
+   * applied so tokens that are about to expire are treated as expired
+   * instead of failing mid-request.
+   *
+   * @param tokenData - Token data to check
+   * @returns true when the access token is (about to be) expired
+   */
+  isAccessTokenExpired(tokenData: TokenData): boolean {
+    if (!tokenData.expires_at) {
+      return false;
+    }
+    return Date.now() > tokenData.expires_at - this.EXPIRY_SKEW_MS;
+  }
+
+  /**
+   * Retrieves OAuth tokens from IndexedDB. Expired tokens are still returned;
+   * use isAccessTokenExpired() to check the access token's validity (a
+   * refresh token may still be usable).
+   *
    * @param clientId - OAuth client identifier
-   * @returns Token data if valid and not expired, null otherwise
+   * @returns Token data if present, null otherwise
    */
   async getTokens(clientId: string): Promise<TokenData | null> {
     const tokenKey = `${this.TOKEN_STORE_PREFIX}${clientId}`;
@@ -150,8 +198,8 @@ export class ClientManager {
    */
   async deleteTokens(clientId: string): Promise<void> {
     const tokenKey = `${this.TOKEN_STORE_PREFIX}${clientId}`;
-    await delMany([tokenKey]).catch((e: any) => 
-      console.error(`[WindowManager] Failed to delete tokens:`, e)
+    await delMany([tokenKey]).catch((e: any) =>
+      console.error(`[ClientManager] Failed to delete tokens:`, e)
     );
   }
 
@@ -170,53 +218,6 @@ export class ClientManager {
   }
 
   /**
-   * Performs silent token renewal using an iframe
-   * Creates a message channel for communication with the client window
-   * 
-   * @param record - Client record for the renewal request
-   * @returns Promise resolving to new token data
-   * @throws {Error} If renewal fails or times out
-   */
-  async silentRenew(record: WindowClientRecord): Promise<any> {
-    const windowClient = await this.sw.clients.get(record.windowId);
-    
-    if (!windowClient) {
-      throw new Error(`Window client ${record.windowId} not found for silent renewal`);
-    }
-    
-    const config = await this.getClientConfigFromClientRecord(record);
-    
-    return new Promise((resolve, reject) => {
-      const { port1, port2 } = new MessageChannel();
-      
-      // Set up timeout to prevent hanging
-      const timeout = setTimeout(() => {
-        reject(new Error('Silent renewal timed out'));
-      }, this.SILENT_RENEWAL_TIMEOUT);
-      
-      windowClient.postMessage(
-        {
-          type: "silent-renew",
-          clientId: record.clientId,
-          callbackPath: record.callbackPath,
-          scope: record.scope,
-          url: config.authorization_endpoint,
-        },
-        [port2]
-      );
-      
-      port1.onmessage = (event) => {
-        clearTimeout(timeout);
-        if (event.data.type === "silent-renew-success") {
-          resolve(event.data.token);
-        } else if (event.data.type === "silent-renew-error") {
-          reject(new Error(event.data.error));
-        }
-      };
-    });
-  }
-
-  /**
    * Initiates OAuth authorization flow for a client
    * Sends authorization request to the client window
    * 
@@ -232,7 +233,7 @@ export class ClientManager {
     }
     
     windowClient.postMessage({
-      type: "authorize",
+      type: PAuthMessage.Authorize,
       clientId: record.clientId,
       callbackPath: record.callbackPath,
       scope: record.scope,

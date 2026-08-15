@@ -1,5 +1,10 @@
 /**
- * Intercept fetch requests and queue them
+ * Intercept fetch requests and queue them.
+ *
+ * Used to hold page requests while the authentication service worker is
+ * being registered and clients are initialised. Once authentication is
+ * ready the queue is flushed (or rejected) and the original fetch is
+ * restored.
  */
 
 interface QueuedFetchRequest {
@@ -9,8 +14,8 @@ interface QueuedFetchRequest {
   timestamp: number;
 }
 
-// Save the original fetch function
-const originalFetch = fetch;
+// Save the original fetch function (bound, so it can be called standalone)
+const originalFetch = window.fetch.bind(window);
 
 // Queue for the fetch requests
 const fetchQueue: QueuedFetchRequest[] = [];
@@ -21,109 +26,76 @@ let isQueuing = false;
 // Timeout for queued requests (30 seconds)
 const QUEUE_TIMEOUT_MS = 30000;
 
-// Periodic cleanup interval (every 5 minutes)
-const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
-
-// Set up periodic cleanup
-let cleanupInterval: number | null = null;
-
 /**
  * Start queuing the fetch requests
- * @returns Promise<void>
- * @async
- * @example
- * ```
- * await startFetchQueuing();
- * ```
- * @see stopFetchQueuing
  *
- * @description This function replaces the original fetch function with a new one that queues the requests
+ * @description Replaces window.fetch with a version that queues requests
+ * until stopFetchQueuing is called. Calling it twice is a no-op.
+ * @see stopFetchQueuing
  */
-export async function startFetchQueuing(): Promise<void> {
+export function startFetchQueuing(): void {
   if (isQueuing) {
-    console.warn('[fetch-queue] Already queuing fetch requests');
+    console.warn("[fetch-queue] Already queuing fetch requests");
     return;
   }
   isQueuing = true;
   window.fetch = queueFetchRequest;
-  
-  // Start periodic cleanup
-  if (!cleanupInterval) {
-    cleanupInterval = window.setInterval(() => {
-      const cleaned = cleanupStaleRequests();
-      if (cleaned > 0) {
-        console.log(`[fetch-queue] Cleaned up ${cleaned} stale requests`);
-      }
-    }, CLEANUP_INTERVAL_MS);
-  }
 }
 
 /**
  * Stop queuing the fetch requests
- * @param removeQueue - remove the queue before restoring the original fetch function
- * @returns Promise<void>
- * @async
- * @example
- * ```
- * await stopFetchQueuing();
- * ```
- * @see startFetchQueuing
  *
- * @description This function restores the original fetch function and processes the queued requests
+ * @param removeQueue - reject and discard the queued requests instead of
+ * flushing them through the original fetch function
+ *
+ * @description Restores the original fetch function and then either flushes
+ * the queued requests (default) or rejects them (removeQueue = true).
+ * @see startFetchQueuing
  */
-export async function stopFetchQueuing(removeQueue = false): Promise<void> {
+export function stopFetchQueuing(removeQueue = false): void {
   if (!isQueuing) {
-    console.warn('[fetch-queue] Not currently queuing fetch requests');
+    console.warn("[fetch-queue] Not currently queuing fetch requests");
     return;
   }
-  
+
   isQueuing = false;
   window.fetch = originalFetch;
-  
+
   if (removeQueue) {
     // Properly reject all queued promises to prevent memory leaks
     while (fetchQueue.length > 0) {
       const item = fetchQueue.pop();
       if (item) {
-        item.reject(new Error('Fetch request cancelled during queue cleanup'));
+        item.reject(new Error("Fetch request cancelled during queue cleanup"));
       }
     }
     return;
   }
-  
+
   const queue = fetchQueue.splice(0, fetchQueue.length);
-  
-  // Process queued requests with proper error handling
+
+  // Flush the queued requests through the original fetch function
   queue.forEach((item) => {
-    if (!item.args || !item.resolve || !item.reject) {
-      console.error('[fetch-queue] Invalid queued item:', item);
+    // Do not flush requests that already expired while queued
+    if (Date.now() - item.timestamp > QUEUE_TIMEOUT_MS) {
+      item.reject(new Error("Fetch request timed out in queue"));
       return;
     }
-    
-    // Check for timeout
-    const now = Date.now();
-    if (now - item.timestamp > QUEUE_TIMEOUT_MS) {
-      item.reject(new Error('Fetch request timed out in queue'));
-      return;
-    }
-    
-    originalFetch(item.args[0], item.args[1])
-      .then((response) => {
-        item.resolve(response);
-      })
-      .catch((error) => {
-        item.reject(error);
-      });
+
+    originalFetch(item.args[0], item.args[1]).then(item.resolve, item.reject);
   });
 }
 
 /**
  * Queue the fetch request
+ *
  * @param url - The URL to fetch
  * @param requestInit - The request options
  * @returns Promise<Response>
  *
- * @description This original fetch function is replaced with this one that queues the requests
+ * @description The replacement fetch function that queues requests while
+ * queuing is active. Each queued request is rejected after QUEUE_TIMEOUT_MS
+ * to prevent requests from hanging forever.
  */
 async function queueFetchRequest(
   url: URL | RequestInfo,
@@ -136,15 +108,15 @@ async function queueFetchRequest(
       reject,
       timestamp: Date.now(),
     };
-    
+
     fetchQueue.push(qItem);
-    
-    // Add timeout protection for individual requests
+
+    // Timeout protection for individual requests
     setTimeout(() => {
       const index = fetchQueue.indexOf(qItem);
       if (index !== -1) {
         fetchQueue.splice(index, 1);
-        reject(new Error('Fetch request timed out in queue'));
+        reject(new Error("Fetch request timed out in queue"));
       }
     }, QUEUE_TIMEOUT_MS);
   });
@@ -155,31 +127,9 @@ async function queueFetchRequest(
  * @returns Object with queue information
  */
 export function getQueueStatus() {
-  console.log('[fetch-queue] Getting queue status');
   return {
     isQueuing,
     queueLength: fetchQueue.length,
     oldestRequest: fetchQueue.length > 0 ? fetchQueue[0].timestamp : null,
   };
-}
-
-/**
- * Clean up stale requests that have been in the queue too long
- * @returns Number of requests cleaned up
- */
-export function cleanupStaleRequests(): number {
-  console.log('[fetch-queue] Cleaning up stale requests');
-  const now = Date.now();
-  let cleanedCount = 0;
-  
-  for (let i = fetchQueue.length - 1; i >= 0; i--) {
-    const item = fetchQueue[i];
-    if (now - item.timestamp > QUEUE_TIMEOUT_MS) {
-      fetchQueue.splice(i, 1);
-      item.reject(new Error('Fetch request timed out in queue'));
-      cleanedCount++;
-    }
-  }
-  
-  return cleanedCount;
 }

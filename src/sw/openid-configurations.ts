@@ -7,6 +7,12 @@ const MAX_RESPONSE_SIZE = 1024 * 1024; // 1MB limit
 /** Cache duration for OpenID discovery documents (1 hour) */
 const CACHE_DURATION = 1000 * 60 * 60; // 1 hour
 
+/** Name of the (versioned) cache used for OpenID discovery documents */
+const CACHE_NAME = "p-auth-openid-discovery-v1";
+
+/** Legacy cache name, cleaned up opportunistically */
+const LEGACY_CACHE_NAME = "openIdDiscovery";
+
 /**
  * Fetches and caches OpenID Connect discovery configuration from a provider.
  * Automatically appends the well-known discovery path if not present in the URL.
@@ -43,7 +49,13 @@ export async function getOpenIdConfiguration(
     throw new Error(`Invalid discovery URL format: ${discoveryUrl}`);
   }
 
-  if (parsedUrl.protocol !== 'https:') {
+  // HTTPS is required for security, except for local development servers
+  const isLocalhost =
+    parsedUrl.hostname === 'localhost' ||
+    parsedUrl.hostname === '127.0.0.1' ||
+    parsedUrl.hostname === '[::1]';
+
+  if (parsedUrl.protocol !== 'https:' && !isLocalhost) {
     throw new Error('Discovery URL must use HTTPS protocol for security');
   }
 
@@ -89,21 +101,26 @@ async function fetchOpenIdConfiguration(
   let cache: Cache;
   
   try {
-    cache = await serviceWorkerGlobalScope.caches.open("openIdDiscovery");
+    cache = await serviceWorkerGlobalScope.caches.open(CACHE_NAME);
+    // Best-effort removal of the legacy (pre-versioning) discovery cache
+    serviceWorkerGlobalScope.caches.delete(LEGACY_CACHE_NAME).catch(() => {});
   } catch (cacheError) {
     console.warn('[OpenID] Cache not available, proceeding without cache:', cacheError);
     // Fallback to direct fetch without caching
     return fetchDiscoveryDocument(serviceWorkerGlobalScope, url);
   }
 
-  // Check cache first for existing valid data
+  // Check cache first for existing valid data. Entries are stored as a
+  // wrapper ({ timestamp, data }) so no bookkeeping fields leak into the
+  // discovery document returned to callers.
   try {
     const discoveryResponse = await cache.match(url);
     if (discoveryResponse) {
-      const data = await discoveryResponse.json();
-      const isExpired = new Date().getTime() - data.timestamp > CACHE_DURATION;
-      if (data.timestamp && !isExpired) {
-        return data;
+      const entry = await discoveryResponse.json();
+      const isExpired =
+        !entry?.timestamp || Date.now() - entry.timestamp > CACHE_DURATION;
+      if (!isExpired && entry.data) {
+        return entry.data;
       }
     }
   } catch (cacheReadError) {
@@ -112,11 +129,11 @@ async function fetchOpenIdConfiguration(
 
   // Fetch fresh data from the OpenID provider
   const data = await fetchDiscoveryDocument(serviceWorkerGlobalScope, url);
-  
+
   // Try to cache the result for future use
   try {
-    data.timestamp = new Date().getTime();
-    await cache.put(url, new Response(JSON.stringify(data)));
+    const entry = { timestamp: Date.now(), data };
+    await cache.put(url, new Response(JSON.stringify(entry)));
   } catch (cacheWriteError) {
     console.warn('[OpenID] Failed to write to cache:', cacheWriteError);
   }

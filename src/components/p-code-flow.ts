@@ -56,12 +56,19 @@ export class PCodeFlowElement extends HTMLElement implements PAuthClient {
   }
 
   connectedCallback() {
-    this.#authElement = this.closest('p-auth') as PAuthElement;
+    this.#authElement = this.closest('p-auth') as PAuthElement | null;
     if (!this.#authElement) {
       console.error('PCodeFlowElement must be a child of a p-auth element');
       return;
     }
-    this.#authElement.registerAuthClient(this);
+    // Skip re-registration when the element is reconnected while already registered
+    if (!this.initialised) {
+      this.#authElement.registerAuthClient(this);
+    }
+  }
+
+  disconnectedCallback() {
+    this.#authElement = null;
   }
 }
 

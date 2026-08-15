@@ -59,7 +59,7 @@ Create a callback page at the path specified in `callback-path`:
   <title>Authentication Callback</title>
 </head>
 <body>
-    <p-auth sw-url="/dist/sw.js" sw-scope="/">
+  <p-auth sw-url="/dist/sw.js" sw-scope="/">
     <p-code-flow 
       client-id="your-client-id"
       discovery-url="https://your-provider.com"
@@ -121,6 +121,35 @@ Configures an OAuth 2.0 Authorization Code Flow client.
 - `scope` - OAuth 2.0 scope string (space-separated)
 - `callback-path` - Path for OAuth callback handling
 - `url-pattern` - Regular expression pattern for matching URLs that need authentication
+
+#### Methods
+
+- `logout(url?: string)` - Logs out the client: revokes the tokens, clears token storage and redirects to the provider's end-session endpoint. `url` is the path to return to after logout (defaults to the current page).
+- `getUserInfo()` - Returns a `Promise` resolving to the OpenID Connect user info object for this client.
+
+### Events
+
+The `<p-auth>` element dispatches the following events (bubbling and composed, so they can be listened for anywhere in the document):
+
+- `authConnected` - The element was connected to the DOM.
+- `authInitialised` - All clients are registered and queued fetch requests have been flushed.
+- `authError` - An error occurred (client registration failure, authorization callback error, invalid OAuth state). Error details are available in `event.detail`.
+
+```js
+document.querySelector("p-auth").addEventListener("authError", (event) => {
+  console.error("Authentication error:", event.detail);
+});
+```
+
+### Serving the Service Worker
+
+The service worker is built as `dist/sw.js`. It must be served from the **same origin** as your application, so copy it to your web server's public folder and point `sw-url` to it:
+
+```html
+<p-auth sw-url="/sw.js" sw-scope="/">
+```
+
+> **Note:** the `sw-scope` determines which pages the service worker controls. The server must allow the scope via the `Service-Worker-Allowed` header when the worker is not served from the scope root.
 
 ## Development
 

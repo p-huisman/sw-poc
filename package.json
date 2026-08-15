@@ -2,16 +2,36 @@
   "name": "p-auth",
   "version": "1.0.0",
   "description": "OAuth 2.0 / OpenID Connect authentication library built with Web Components and service workers for seamless token management and request interception.",
-  "main": "dist/p-auth.js",
+  "main": "./dist/p-auth.js",
+  "types": "./types/p-auth.d.ts",
+  "exports": {
+    ".": {
+      "types": "./types/p-auth.d.ts",
+      "default": "./dist/p-auth.js"
+    },
+    "./sw.js": "./dist/sw.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "types",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "p-build --action build",
     "develop": "p-build --action develop",
     "test": "p-build --action test",
-    "testdevelop": "p-build --action testdevelop"
+    "testdevelop": "p-build --action testdevelop",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "idb-keyval": "^6.2.2"
   },
   "devDependencies": {
+    "@types/jasmine": "^6.0.0",
     "concurrently": "^9.1.2",
-    "idb-keyval": "^6.2.2",
     "jasmine": "^5.6.0",
     "p-element-build": "^1.0.8"
   },

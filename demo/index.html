@@ -6,64 +6,55 @@
   <title>P-Auth demo</title>
 </head>
 <body>
-  
+
   <h1>P-Auth Demo</h1>
-  <p>This is a demo page for the P-Auth component.</p>
+  <p>This is a demo page for the P-Auth component, using the public
+    <a href="https://demo.duendesoftware.com">demo.duendesoftware.com</a>
+    identity provider (client <code>interactive.public.short</code>).</p>
 
   <p-auth sw-url="/dist/sw.js" sw-scope="/">
-    
-    <p-code-flow 
+
+    <p-code-flow
       discovery-url="https://demo.duendesoftware.com/"
       client-id="interactive.public.short"
       scope="openid email profile offline_access"
       callback-path="/demo/callback.html"
-      url-pattern="(/api/data-sample-request|/demo.duendesoftware.com/connect/userinfo|demo.duendesoftware.com/api/)"
+      url-pattern="(/api/data-sample-request|demo.duendesoftware.com/api/|demo.duendesoftware.com/connect/userinfo)"
     ></p-code-flow>
-    <p-code-flow 
-      discovery-url="https://app-pggm-pggm-onewelcome-deelnemers-pfzw-tstsvr-o.pggm-ase-team7-shared-ase-o.appserviceenvironment.net/.well-known/openid-configuration"
-      client-id="particulier"
+
+    <!-- Example: configure additional identity providers by adding more
+         p-code-flow elements with their own url-pattern, e.g.
+
+    <p-code-flow
+      discovery-url="https://auth.example.com/"
+      client-id="my-client"
       scope="openid profile"
-      callback-path="/particulieren/mijnpfzw/callback.html"
-      url-pattern="(\/\/services\.team_7\.o\.pggm-intra\.intern\/MijnOmgeving|apiservice.o.pfzw.nl|api.apim.o.pggm-cloud.nl)"
+      callback-path="/demo/callback.html"
+      url-pattern="(https://api.example.com/)"
     ></p-code-flow>
+    -->
 
   </p-auth>
-  
 
-  <button id="fetchButton">Do fetch</button> 
-  <button id="logoutButtonDuende">Logout interactive.public.short</button> 
-  <button id="logoutButton">Logout particulier</button>
+  <button id="fetchButton">Do fetch</button>
+  <button id="logoutButton">Logout</button>
   <script src="../dist/p-auth.js" type="module"></script>
 
   <script defer>
 
     const url1 = "https://demo.duendesoftware.com/api/test";
-    const url2 = 'https://services.team_7.o.pggm-intra.intern/MijnOmgeving_vnext/particulier/personalia'
 
-
-    function logoutDuende() {
+    document.getElementById('logoutButton').addEventListener('click', () => {
       const codeFlow = document.querySelector('p-code-flow[client-id="interactive.public.short"]');
       if (codeFlow) {
         codeFlow.logout("/");
       } else {
         console.error('Code flow for interactive.public.short not found');
       }
-    }
+    });
 
-    function logoutParticulier() {
-      const codeFlow = document.querySelector('p-code-flow[client-id="particulier"]');
-      if (codeFlow) {
-        codeFlow.logout("/");
-      } else {
-        console.error('Code flow for particulier not found');
-      }
-    }
-
-    document.getElementById('logoutButtonDuende').addEventListener('click', logoutDuende);
-    document.getElementById('logoutButton').addEventListener('click', logoutParticulier);
-    
     document.getElementById('fetchButton').addEventListener('click', () => {
-      document.getElementById('output1').textContent = "";   
+      document.getElementById('output1').textContent = "";
       fetch(url1)
         .then(response => {
           if (!response.ok) {
@@ -78,33 +69,38 @@
           console.error('Error fetching data:', error);
         });
     });
+
     window.addEventListener("DOMContentLoaded", () => {
-      
-    document.getElementById('output1').textContent = "";   
-    document.getElementById('output2').textContent = "";
 
-    document.querySelector("p-auth").addEventListener("authInitialised", () => {
-      console.log("P-Auth initialized");
-    });
+      document.getElementById('output1').textContent = "";
+      document.getElementById('output2').textContent = "";
 
-     fetch(url2)
+      document.querySelector("p-auth").addEventListener("authInitialised", () => {
+        console.log("P-Auth initialized");
+      });
+
+      document.querySelector("p-auth").addEventListener("authError", (event) => {
+        console.error("P-Auth error:", event.detail);
+      });
+
+      // Initial fetch on page load; queued until authentication is ready
+      fetch(url1)
         .then(response => {
           if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
-          } 
+          }
           return response.json();
         })
         .then(data => {
           document.getElementById('output2').textContent = JSON.stringify(data, null, 2);
-          // console.log('Initial fetch data:', data);
         })
         .catch(error => {
           console.error('Error during initial fetch:', error);
         });
-      });
+    });
 
-    </script>
-    <pre id="output1"></pre>
-    <pre id="output2"></pre>
+  </script>
+  <pre id="output1"></pre>
+  <pre id="output2"></pre>
 </body>
 </html>

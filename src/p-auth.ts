@@ -19,5 +19,5 @@
  */
 
 // Core Components
-export { PAUthElement } from "./components/p-auth";
+export { PAuthElement } from "./components/p-auth";
 export { PCodeFlowElement } from "./components/p-code-flow";

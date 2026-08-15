@@ -4,7 +4,10 @@
     "./src/sw/sw.ts"
   ],
   "testEntryPoints": [
-    "./src/p-auth.spec.ts"
+    "./src/p-auth.spec.ts",
+    "./src/helpers/crypto.spec.ts",
+    "./src/components/fetch-queue.spec.ts",
+    "./src/sw/openid-configurations.spec.ts"
   ],
   "entryNames": "[name]",
   "format": "esm",
@@ -13,12 +16,9 @@
     "host": "localhost",
     "api": "./api/api.mjs"
   },
-  "nodeModulesPath": "../../node_modules",
+  "nodeModulesPath": "./node_modules",
   "dist": "./dist",
   "target": "es6",
-  "testFiles": [
-    "/node_modules/p-elements-core/dist/p-elements-core.js"
-  ],
   "browsers": [
     "chromium"
   ]

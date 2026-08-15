@@ -16,10 +16,6 @@ const api = (app) => {
   app.get("/demo/callback.html", (req, res) => {
     res.sendFile(path.join(__dirname, "callback.html"));
   });
-
-  app.get("/particulieren/mijnpfzw/callback.html", (req, res) => {
-    res.sendFile(path.join(__dirname, "callback.html"));
-  });
 };
 
 export default api;

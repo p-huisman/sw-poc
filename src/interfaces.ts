@@ -77,6 +77,39 @@ export interface WindowClientRecord {
 }
 
 /**
+ * Message types used for communication between the window (p-auth element)
+ * and the service worker. Shared single source of truth so both sides stay
+ * in sync and typos are caught at compile time.
+ */
+export const PAuthMessage = {
+  /** window → SW: register a new OAuth client */
+  RegisterClient: "register-client",
+  /** window → SW: process an OAuth authorization callback */
+  AuthorizeCallback: "authorize-callback",
+  /** window → SW: log out a client */
+  Logout: "logout",
+  /** window → SW: request user info (answered over a MessageChannel port) */
+  GetUserInfo: "get-user-info",
+  /** SW → window: client registration succeeded */
+  ClientRegistered: "client-registered",
+  /** SW → window: client registration failed */
+  ClientRegistrationError: "client-registration-error",
+  /** SW → window: start the authorization flow */
+  Authorize: "authorize",
+  /** SW → window: authorization failed */
+  AuthorizationError: "authorization-error",
+  /** SW → window: perform a redirect */
+  Redirect: "redirect",
+  /** SW → window (port): user info result */
+  UserInfoResponse: "user-info-response",
+  /** SW → window (port): user info failure */
+  UserInfoError: "user-info-error",
+} as const;
+
+/** Union of all valid message type strings */
+export type PAuthMessageType = (typeof PAuthMessage)[keyof typeof PAuthMessage];
+
+/**
  * OIDC Configuration interface
  */
 export interface OIDCConfiguration {

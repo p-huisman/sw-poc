@@ -1,5 +1,5 @@
 import { encodedStringFromObject } from "../helpers/crypto";
-import { RegisterClientRequestData } from "../interfaces";
+import { PAuthMessage, RegisterClientRequestData } from "../interfaces";
 import { doFetch } from "./fetch";
 import { getOpenIdConfiguration } from "./openid-configurations";
 import { ClientManager } from "./window-manager";
@@ -16,10 +16,14 @@ function validateMessageSource(event: ExtendableMessageEvent): boolean {
   }
 
   // Only allow messages from same origin
-  const clientOrigin = new URL(windowClient.url).origin;
-  const serviceWorkerOrigin = new URL(self.location.href).origin;
+  try {
+    const clientOrigin = new URL(windowClient.url).origin;
+    const serviceWorkerOrigin = new URL(self.location.href).origin;
 
-  return clientOrigin === serviceWorkerOrigin;
+    return clientOrigin === serviceWorkerOrigin;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -43,7 +47,7 @@ self.windowManager = ClientManager.getInstance(self);
  * @param event - The fetch event containing request details
  */
 
-self.addEventListener("fetch", async (event: FetchEvent) => {
+self.addEventListener("fetch", (event: FetchEvent) => {
   const windowId = event.clientId;
   const response = doFetch(event, self.windowManager, windowId);
   event.respondWith(response);
@@ -75,7 +79,7 @@ self.addEventListener("activate", (event: ExtendableEvent) => {
  *
  * @param event - The message event containing the operation type and data
  */
-self.addEventListener("message", async (event: ExtendableMessageEvent) => {
+self.addEventListener("message", (event: ExtendableMessageEvent) => {
   const windowClient = event.source as WindowClient;
   if (!windowClient) {
     return;
@@ -90,8 +94,24 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
     return;
   }
 
+  // Keep the service worker alive until the asynchronous work (token
+  // exchange, IndexedDB writes, ...) has completed. Without waitUntil the
+  // browser may terminate the worker mid-operation.
+  event.waitUntil(handleMessage(event, windowClient));
+});
+
+/**
+ * Processes a validated message from a client window.
+ *
+ * @param event - The message event containing the operation type and data
+ * @param windowClient - The window client that sent the message
+ */
+async function handleMessage(
+  event: ExtendableMessageEvent,
+  windowClient: WindowClient
+): Promise<void> {
   switch (event.data.type) {
-    case "register-client":
+    case PAuthMessage.RegisterClient:
       /**
        * Handles client registration by:
        * 1. Retrieving OpenID configuration from discovery URL
@@ -107,7 +127,7 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
 
       const postErrorMessage = (errorMessage: string) => {
         windowClient.postMessage({
-          type: "client-registration-error",
+          type: PAuthMessage.ClientRegistrationError,
           clientId: event.data.clientId,
           error: errorMessage,
         });
@@ -139,14 +159,14 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
       }
 
       windowClient.postMessage({
-        type: "client-registered",
+        type: PAuthMessage.ClientRegistered,
         clientId: event.data.clientId,
         clientType: event.data.clientType,
       });
 
       break;
 
-    case "authorize-callback":
+    case PAuthMessage.AuthorizeCallback:
       /**
        * Handles OAuth authorization callback by:
        * 1. Parsing and validating the state parameter
@@ -157,14 +177,17 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
        */
       const { verifier, ...result } = event.data;
 
-      // Parse and validate the state parameter which contains client and redirect info
+      // Parse and validate the state parameter which contains client and
+      // redirect info. The window already URL-decoded the callback parameters
+      // once, so no extra decoding here (double-decoding corrupts URLs that
+      // contain percent-encoded characters).
       let state: any = {};
       try {
-        state = JSON.parse(decodeURIComponent(event.data.state) || "{}");
+        state = JSON.parse(event.data.state || "{}");
       } catch (error) {
         console.error("Error parsing state parameter:", error);
         windowClient.postMessage({
-          type: "authorization-error",
+          type: PAuthMessage.AuthorizationError,
           error: "Invalid state parameter",
         });
         break;
@@ -173,7 +196,7 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
       // Validate required parameters for OAuth flow
       if (!event.data.state) {
         windowClient.postMessage({
-          type: "authorization-error",
+          type: PAuthMessage.AuthorizationError,
           error: "Missing state parameter",
         });
         break;
@@ -181,10 +204,33 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
 
       if (!event.data.code) {
         windowClient.postMessage({
-          type: "authorization-error",
+          type: PAuthMessage.AuthorizationError,
           error: "Missing authorization code",
         });
         break;
+      }
+
+      // Prevent open redirects: state.url round-trips through the identity
+      // provider and is potentially attacker-controlled, so only allow
+      // redirects back to this service worker's origin.
+      try {
+        if (
+          state.url &&
+          new URL(state.url, self.location.origin).origin !==
+            self.location.origin
+        ) {
+          windowClient.postMessage({
+            type: PAuthMessage.AuthorizationError,
+            error: "Invalid redirect URL in state parameter",
+          });
+          return;
+        }
+      } catch {
+        windowClient.postMessage({
+          type: PAuthMessage.AuthorizationError,
+          error: "Invalid redirect URL in state parameter",
+        });
+        return;
       }
 
       // Retrieve clients associated with this window to find the matching one
@@ -194,7 +240,7 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
 
       if (clients instanceof Error) {
         windowClient.postMessage({
-          type: "authorization-error",
+          type: PAuthMessage.AuthorizationError,
           error: "Failed to retrieve clients",
         });
         return;
@@ -206,7 +252,7 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
       );
       if (!callbackForClient) {
         windowClient.postMessage({
-          type: "authorization-error",
+          type: PAuthMessage.AuthorizationError,
           error: "Client not found",
         });
         return;
@@ -219,7 +265,7 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
 
       if (callbackConfig instanceof Error) {
         windowClient.postMessage({
-          type: "authorization-error",
+          type: PAuthMessage.AuthorizationError,
           error: "Failed to retrieve client configuration",
         });
         return;
@@ -244,7 +290,7 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
       });
       if (!fetchResponse.ok) {
         windowClient.postMessage({
-          type: "authorization-error",
+          type: PAuthMessage.AuthorizationError,
           error: `Token request failed: ${fetchResponse.status} ${fetchResponse.statusText}`,
         });
         return;
@@ -255,7 +301,7 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
       if (tokenData instanceof Error) {
         console.error("Error parsing token response:", tokenData);
         windowClient.postMessage({
-          type: "authorization-error",
+          type: PAuthMessage.AuthorizationError,
           error: "Failed to parse token response",
         });
         return;
@@ -266,14 +312,14 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
 
       // Redirect the user back to their original destination
       windowClient.postMessage({
-        type: "redirect",
-        url: state.url,
+        type: PAuthMessage.Redirect,
+        url: state.url || "/",
       });
 
       break;
 
-    case "logout":
-      const { clientId, sessionId, url } = event.data;
+    case PAuthMessage.Logout:
+      const { clientId, url } = event.data;
       const clientsInWindow = await self.windowManager.getClientsByWindowId(
         windowClient.id
       );
@@ -356,13 +402,13 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
         );
 
       windowClient.postMessage({
-        type: "redirect",
+        type: PAuthMessage.Redirect,
         url: redirectUrl + redirectParams,
       });
 
       break;
 
-    case "get-user-info":
+    case PAuthMessage.GetUserInfo:
       const port = event.ports[0];
       if (!port) {
         console.error("[SW] No port provided for user info request");
@@ -374,6 +420,10 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
       );
       if (!userInfoClients || userInfoClients.length === 0) {
         console.error("[SW] No clients found for window ID:", windowClient.id);
+        port.postMessage({
+          type: PAuthMessage.UserInfoError,
+          error: "No registered clients found for this window",
+        });
         return;
       }
       const userInfoClient = userInfoClients.find(
@@ -384,6 +434,10 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
           "[SW] Client not found for user info:",
           event.data.clientId
         );
+        port.postMessage({
+          type: PAuthMessage.UserInfoError,
+          error: "Client not found",
+        });
         return;
       }
       const userInfoConfig =
@@ -396,7 +450,7 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
           event.data.clientId
         );
         port.postMessage({
-          type: "user-info-error",
+          type: PAuthMessage.UserInfoError,
           error: "User info endpoint not available",
         });
         return;
@@ -410,7 +464,7 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
           event.data.clientId
         );
         port.postMessage({
-          type: "user-info-error",
+          type: PAuthMessage.UserInfoError,
           error: "No access token available",
         });
         return;
@@ -427,7 +481,7 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
           userInfoResponse.statusText
         );
         port.postMessage({
-          type: "user-info-error",
+          type: PAuthMessage.UserInfoError,
           error: `User info request failed: ${userInfoResponse.status} ${userInfoResponse.statusText}`,
         });
         return;
@@ -436,14 +490,14 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
       if (userInfoData instanceof Error) {
         console.error("[SW] Error parsing user info response:", userInfoData);
         port.postMessage({
-          type: "user-info-error",
+          type: PAuthMessage.UserInfoError,
           error: "Failed to parse user info response",
         });
         return;
       }
 
       port.postMessage({
-        type: "user-info-response",
+        type: PAuthMessage.UserInfoResponse,
         userInfo: userInfoData,
       });
       break;
@@ -452,7 +506,7 @@ self.addEventListener("message", async (event: ExtendableMessageEvent) => {
       console.warn("[SW] Unknown message type:", event.data.type);
       break;
   }
-});
+}
 
 /**
  * Revoke a token

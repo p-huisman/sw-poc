@@ -1,13 +1,14 @@
-import { RegisterClientRequestData } from "../interfaces";
+import {
+  PAuthClient,
+  PAuthMessage,
+  RegisterClientRequestData,
+} from "../interfaces";
 import { stopFetchQueuing, startFetchQueuing } from "./fetch-queue";
-import { PAuthClient } from "../interfaces";
 import {
   encodedStringFromObject,
   generateRandomString,
   pkceChallengeFromVerifier,
 } from "../helpers/crypto";
-
-startFetchQueuing();
 
 /**
  * Custom HTML element that manages OAuth/OpenID Connect authentication through a service worker.
@@ -39,8 +40,6 @@ export class PAuthElement extends HTMLElement {
       this.#swResolveFn = resolve;
       this.#swRejectFn = reject;
     });
-
-    this.#registerServiceWorker();
   }
 
   /** Resolver function for the service worker promise */
@@ -48,6 +47,12 @@ export class PAuthElement extends HTMLElement {
 
   /** Rejection function for the service worker promise */
   #swRejectFn!: (error: Error) => void;
+
+  /** Whether the service worker registration has been set up */
+  #isSetup = false;
+
+  /** IDs of clients whose registration failed in the service worker */
+  #failedClientIds = new Set<string>();
 
   /** Promise that resolves when the service worker is ready */
   serviceWorker: Promise<ServiceWorker> | null = null;
@@ -61,16 +66,18 @@ export class PAuthElement extends HTMLElement {
   #onServiceWorkerMessage = (event: MessageEvent) => {
     try {
       switch (event.data.type) {
-        case "client-registration-error":
-        case "client-registered":
+        case PAuthMessage.ClientRegistrationError:
+          this.#clientRegistrationError(event);
+          break;
+        case PAuthMessage.ClientRegistered:
           this.#clientRegistered(event);
           break;
-        case "authorize":
+        case PAuthMessage.Authorize:
           this.#authorize(event);
           break;
-        case "redirect":
+        case PAuthMessage.Redirect:
           const url = event.data.url;
-          if (url) {
+          if (typeof url === "string" && url) {
             document.location.href = url;
           }
           break;
@@ -92,52 +99,140 @@ export class PAuthElement extends HTMLElement {
   #clientRegistered(event: MessageEvent) {
     const clientId = event.data.clientId;
 
-    // Find all auth client elements that are children of this element
-    const authClients = Array.from(this.children).filter(
-      (node): node is PAuthClient => "clientId" in node && "initialised" in node
-    );
-
     // Mark the specific client as initialised
-    authClients.forEach((client) => {
+    this.#getAuthClients().forEach((client) => {
       if (client.clientId === clientId) {
         client.initialised = true;
       }
     });
 
-    // Check if all clients are now initialised
-    const allClientsReady = authClients.every((client) => client.initialised);
-    if (allClientsReady && authClients.length > 0) {
-      const verifier = sessionStorage.getItem("p-oauth-verifier");
-      const isAuthorizeCallback = document.location.hash.includes("code=") && verifier;
-      const isAuthorizeCallbackError = document.location.hash.includes("error=") && verifier;
+    this.#checkAllClientsSettled();
+  }
 
-      // Clean up the verifier from storage
-      sessionStorage.removeItem("p-oauth-verifier");
-
-      // If this is an authorization callback, process it
-      if (isAuthorizeCallback && verifier) {
-        const result = this.#getAuthoriseCallbackResult();
-        if (this.serviceWorker) {
-          this.serviceWorker.then((sw) => {
-            sw.postMessage({ verifier, type: "authorize-callback", ...result });
-          });
-        }
-      }
-      if (isAuthorizeCallbackError) {
-        console.error("[p-auth] Authorization callback error:", event.data.error);
-        this.dispatchEvent(
-          new CustomEvent("authError", { bubbles: true, composed: true, detail: { error: event.data } })
-        );
-      }
-
-      // Notify that the auth system is ready
-      this.dispatchEvent(
-        new CustomEvent("authInitialised", { bubbles: true, composed: true })
-      );
-
-      // Stop queuing fetch requests since auth is now ready
-      stopFetchQueuing(false);
+  /**
+   * Handles a client registration failure reported by the service worker.
+   * Dispatches an 'authError' event and tracks the failure so the client is
+   * never marked as ready (and the fetch queue is not flushed for it).
+   *
+   * @param event - MessageEvent containing the clientId and error
+   */
+  #clientRegistrationError(event: MessageEvent) {
+    const { clientId, error } = event.data ?? {};
+    console.error(
+      `[p-auth] Client registration failed for "${clientId}":`,
+      error
+    );
+    if (clientId) {
+      this.#failedClientIds.add(clientId);
     }
+    this.dispatchEvent(
+      new CustomEvent("authError", {
+        bubbles: true,
+        composed: true,
+        detail: { clientId, error },
+      })
+    );
+
+    this.#checkAllClientsSettled();
+  }
+
+  /**
+   * Finds all auth client elements that are children of this element.
+   *
+   * @returns Array of PAuthClient child elements
+   */
+  #getAuthClients(): PAuthClient[] {
+    return Array.from(this.children).filter(
+      (node): node is PAuthClient => "clientId" in node && "initialised" in node
+    );
+  }
+
+  /**
+   * Checks whether all auth clients have settled (registered or failed).
+   * When settled, processes any pending authorization callback, dispatches
+   * the 'authInitialised' event and flushes the queued fetch requests.
+   */
+  #checkAllClientsSettled() {
+    const authClients = this.#getAuthClients();
+
+    // Check if all clients are now settled (initialised or failed)
+    const allClientsSettled =
+      authClients.length > 0 &&
+      authClients.every(
+        (client) =>
+          client.initialised || this.#failedClientIds.has(client.clientId)
+      );
+    if (!allClientsSettled) {
+      return;
+    }
+
+    const verifier = sessionStorage.getItem("p-oauth-verifier");
+    const expectedState = sessionStorage.getItem("p-oauth-state");
+    const callbackResult = this.#getAuthoriseCallbackResult();
+    const isAuthorizeCallback = !!verifier && "code" in callbackResult;
+    const isAuthorizeCallbackError = !!verifier && "error" in callbackResult;
+
+    // Clean up the stored flow values
+    sessionStorage.removeItem("p-oauth-verifier");
+    sessionStorage.removeItem("p-oauth-state");
+
+    // If this is an authorization callback, process it
+    if (isAuthorizeCallback && verifier) {
+      // Validate the OAuth state parameter to protect against CSRF attacks:
+      // the nonce must match the one stored when the flow was initiated.
+      let stateIsValid = false;
+      try {
+        const state = JSON.parse(callbackResult.state || "{}");
+        stateIsValid = !!expectedState && state.nonce === expectedState;
+      } catch {
+        stateIsValid = false;
+      }
+
+      if (!stateIsValid) {
+        console.error(
+          "[p-auth] Invalid OAuth state parameter - possible CSRF attack, aborting callback"
+        );
+        this.dispatchEvent(
+          new CustomEvent("authError", {
+            bubbles: true,
+            composed: true,
+            detail: { error: "Invalid OAuth state parameter" },
+          })
+        );
+      } else if (this.serviceWorker) {
+        this.serviceWorker.then((sw) => {
+          sw.postMessage({
+            verifier,
+            type: PAuthMessage.AuthorizeCallback,
+            ...callbackResult,
+          });
+        });
+      }
+    }
+    if (isAuthorizeCallbackError) {
+      console.error(
+        "[p-auth] Authorization callback error:",
+        callbackResult.error
+      );
+      this.dispatchEvent(
+        new CustomEvent("authError", {
+          bubbles: true,
+          composed: true,
+          detail: {
+            error: callbackResult.error,
+            errorDescription: callbackResult.error_description,
+          },
+        })
+      );
+    }
+
+    // Notify that the auth system is ready
+    this.dispatchEvent(
+      new CustomEvent("authInitialised", { bubbles: true, composed: true })
+    );
+
+    // Stop queuing fetch requests since auth is now ready
+    stopFetchQueuing(false);
   }
 
   /**
@@ -157,6 +252,11 @@ export class PAuthElement extends HTMLElement {
     const verifier = generateRandomString();
     sessionStorage.setItem("p-oauth-verifier", verifier);
 
+    // Generate a random state nonce and store it so the callback can be
+    // validated (CSRF protection)
+    const stateNonce = generateRandomString();
+    sessionStorage.setItem("p-oauth-state", stateNonce);
+
     // Generate the PKCE challenge from the verifier
     pkceChallengeFromVerifier(verifier).then((codeChallenge) => {
       // Build the authorization request parameters
@@ -172,6 +272,7 @@ export class PAuthElement extends HTMLElement {
           window.location.origin
         ).toString(),
         state: JSON.stringify({
+          nonce: stateNonce,
           silent: false,
           clientId: event.data.clientId,
           url: document.location.href,
@@ -179,11 +280,11 @@ export class PAuthElement extends HTMLElement {
       };
 
       // Construct the authorization URL and redirect
-      const location =
+      const authorizationUrl =
         event.data.url +
         "?" +
         encodedStringFromObject(tokenLocationParams, encodeURIComponent, "&");
-      document.location = location;
+      document.location.href = authorizationUrl;
     });
   }
 
@@ -197,12 +298,6 @@ export class PAuthElement extends HTMLElement {
       // Get service worker configuration from element attributes
       const swUrl = this.getAttribute("sw-url") || "/sw.js";
       const scope = this.getAttribute("sw-scope") || "/";
-
-      // Set up message listener for service worker communications
-      navigator.serviceWorker.addEventListener(
-        "message",
-        this.#onServiceWorkerMessage
-      );
 
       // Register the service worker
       navigator.serviceWorker
@@ -263,20 +358,16 @@ export class PAuthElement extends HTMLElement {
       queryString = document.location.search.substring(1);
     }
 
-    // Parse the query string into an object with proper error handling
+    // Parse the parameters into an object. URLSearchParams handles decoding
+    // and correctly supports values containing "=" characters.
+    const result: Record<string, string> = {};
     if (!queryString) {
-      return {};
+      return result;
     }
-
-    return queryString.split("&")
-      .filter(item => item.includes("=")) // Filter out malformed parameters
-      .reduce((result: Record<string, string>, item) => {
-        const parts = item.split("=");
-        const key = decodeURIComponent(parts[0]);
-        const value = parts[1] ? decodeURIComponent(parts[1]) : "";
-        result[key] = value;
-        return result;
-      }, {} as Record<string, string>);
+    new URLSearchParams(queryString).forEach((value, key) => {
+      result[key] = value;
+    });
+    return result;
   }
 
 
@@ -290,13 +381,13 @@ export class PAuthElement extends HTMLElement {
   async logout(client: PAuthClient, url?: string) {
     const sw = await this.serviceWorker;
     if (!url) {
-      url = location.href.split(window.origin)[1];
+      url = location.pathname + location.search + location.hash;
     }
     if (!sw) {
       console.error("[p-auth] Service Worker is not available");
       return;
     }
-    sw.postMessage({ type: "logout", clientId: client.clientId, url });
+    sw.postMessage({ type: PAuthMessage.Logout, clientId: client.clientId, url });
   }
 
   /**
@@ -330,6 +421,26 @@ export class PAuthElement extends HTMLElement {
       }
       return;
     }
+
+    // Set up the service worker registration once the element is connected:
+    // attributes are only reliably available here (not in the constructor for
+    // parser-created elements). The message listener must be (re-)attached on
+    // every connection because disconnectedCallback removes it; re-adding the
+    // same listener reference is a no-op when it is already registered.
+    if (!this.#isSetup) {
+      this.#isSetup = true;
+      // Queue page fetches until authentication is ready, so requests made
+      // during startup can be replayed through the service worker
+      startFetchQueuing();
+      this.#registerServiceWorker();
+    }
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.addEventListener(
+        "message",
+        this.#onServiceWorkerMessage
+      );
+    }
+
     this.dispatchEvent(
       new CustomEvent("authConnected", { bubbles: true, composed: true })
     );
@@ -361,10 +472,12 @@ export class PAuthElement extends HTMLElement {
    * Cleans up event listeners to prevent memory leaks.
    */
   disconnectedCallback() {
-    navigator.serviceWorker.removeEventListener(
-      "message",
-      this.#onServiceWorkerMessage
-    );
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.removeEventListener(
+        "message",
+        this.#onServiceWorkerMessage
+      );
+    }
   }
 
   async getUserInfo(client: PAuthClient) {
@@ -383,9 +496,9 @@ export class PAuthElement extends HTMLElement {
       channel.port1.onmessage = (event) => {
         clearTimeout(timeout);
         channel.port1.close();
-        if (event.data && event.data.type === "user-info-response") {
+        if (event.data && event.data.type === PAuthMessage.UserInfoResponse) {
           resolve(event.data.userInfo);
-        } else if (event.data && event.data.type === "user-info-error") {
+        } else if (event.data && event.data.type === PAuthMessage.UserInfoError) {
           reject(event.data.error);
         } else {
           reject(new Error("Unexpected response from service worker"));
@@ -394,7 +507,7 @@ export class PAuthElement extends HTMLElement {
 
       sw.postMessage(
         {
-          type: "get-user-info",
+          type: PAuthMessage.GetUserInfo,
           clientId: client.clientId,
         },
         [channel.port2]
@@ -450,7 +563,7 @@ export class PAuthElement extends HTMLElement {
 
       // Build and send the registration request
       const registerRequest: RegisterClientRequestData = {
-        type: "register-client",
+        type: PAuthMessage.RegisterClient,
         clientId: client.clientId,
         discoveryUrl: client.discoveryUrl,
         scope: client.scope,
