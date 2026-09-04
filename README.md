@@ -188,6 +188,7 @@ Run the development server and visit `http://localhost:9090/demo/` to see the au
 
 ## Browser Support
 
+
 - Chrome 61+
 - Firefox 53+
 - Safari 11.1+
