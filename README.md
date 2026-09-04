@@ -4,6 +4,7 @@ A modern OAuth 2.0 / OpenID Connect authentication library built with Web Compon
 
 ## Features
 
+- Web components
 - 🔒 **Secure Authentication** - OAuth 2.0 Authorization Code Flow with PKCE
 - 🌐 **Service Worker Integration** - Automatic token injection for API requests
 - 🧩 **Web Components** - Easy to integrate declarative HTML components
