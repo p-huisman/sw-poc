@@ -1,6 +1,6 @@
 # P-Auth
 
-A modern OAuth 2.0 / OpenID Connect authentication library built with Web Components and service workers for seamless token management and request interception.
+A modern OAuth 2.0 / OpenID Connect authentication library built with web components and service worker for seamless token management and request interception.
 
 ## Features
 
